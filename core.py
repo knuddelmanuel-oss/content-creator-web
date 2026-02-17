@@ -1,278 +1,424 @@
-import io
+import random
 import time
+import json
+import re
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
-import streamlit as st
-from PIL import Image
-
-from core import WebDataManager, ImageGenerator
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageOps
 
 
-# ---------- Grundlayout maximal kompakt ----------
+# ---------- Hilfsfunktionen ----------
 
-st.set_page_config(
-    page_title="Content Creator Pro",
-    layout="wide",
-    page_icon="🎨",
-)
+def sanitize_filename(name: str) -> str:
+    """Bereinigt Dateinamen für URL/System (nur zur Sicherheit)."""
+    return re.sub(r'[\\/*?:"<>|]', "", name)
 
-# Weniger Padding & White-Space im Hauptbereich
-st.markdown(
+def get_readable_name(filename: str) -> str:
+    """Macht aus 'zieh_ab_arschloch.txt' -> 'Zieh Ab Arschloch'."""
+    stem = Path(filename).stem
+    # Unterstriche zu Leerzeichen
+    readable = stem.replace("_", " ").replace("-", " ")
+    # Optional: Wörter kapitalisieren
+    return readable.title()
+
+
+def load_json(path: Path, default):
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return default
+
+
+def save_json(path: Path, data):
+    try:
+        with path.open("w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+# ---------- Daten-Management (Auto-Discovery) ----------
+
+class WebDataManager:
     """
-    <style>
-    .block-container {
-        padding-top: 0.2rem;
-        padding-bottom: 0.2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    .stVerticalBlock { gap: 0.3rem !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+    Scannt automatisch data_content_creator nach .txt-Dateien und *_backgrounds Ordnern.
+    Erstellt daraus dynamisch Kategorien.
+    """
 
-dm = WebDataManager()
-ig = ImageGenerator(dm)
+    def __init__(self):
+        self.base_dir = Path(__file__).parent / "data_content_creator"
+        self.base_dir.mkdir(exist_ok=True)
 
-categories = dm.get_categories()
-if not categories:
-    st.error("Keine Kategorien gefunden. Prüfe `data_content_creator` im Projektordner.")
-    st.stop()
+        self.final_image_dir = Path(__file__).parent / "generated_posts"
+        self.final_image_dir.mkdir(exist_ok=True)
 
+        self.used_texts_file = self.base_dir / "used_texts_web.json"
+        self.used_texts: Dict[str, float] = load_json(self.used_texts_file, {})
 
-# ---------- Kopfzeile & Kategorie (oben, kompakt) ----------
+        # Rotation-Lock (Minuten)
+        self.lock_duration_minutes = 10
 
-head_left, head_right = st.columns([2, 3])
+        # Auto-Discovery: Alle .txt Dateien finden
+        self.txt_files = sorted(self.base_dir.glob("*.txt"))
+        
+        # Mapping: Kategorie-Name -> Dateipfad
+        self.categories: Dict[str, Path] = {}
+        for f in self.txt_files:
+            cat_name = get_readable_name(f.name)
+            self.categories[cat_name] = f
 
-with head_left:
-    st.markdown("#### 🎨 Content Creator Pro – Web")
-    st.caption("Kategorien, Texte, Hintergründe & Rotation (Web-Version)")
+        # Falls gar keine .txt da sind, Dummy-Eintrag (damit App nicht crasht)
+        if not self.categories:
+            dummy = self.base_dir / "demo.txt"
+            if not dummy.exists():
+                with dummy.open("w", encoding="utf-8") as f:
+                    f.write("Dies ist ein Beispieltext.\n")
+            self.categories["Demo"] = dummy
 
-with head_right:
-    category = st.radio(
-        "Kategorie wählen",
-        categories,
-        horizontal=True,
-        label_visibility="collapsed",
-    )
+    # ----- Kategorien -----
 
-# Aktuelle Kategorie im Preview-Bereich deutlich anzeigen
-st.markdown(
-    f"<div style='text-align:right; font-size:0.9rem; color:#888;'>Aktuelle Kategorie: "
-    f"<span style='font-weight:600; color:#fff;'>{category}</span></div>",
-    unsafe_allow_html=True,
-)
+    def get_categories(self) -> List[str]:
+        return sorted(list(self.categories.keys()))
 
+    def get_file_for_category(self, category: str) -> Path:
+        return self.categories.get(category, self.base_dir / "demo.txt")
 
-# ---------- Sidebar: Daten & Hintergründe ----------
+    # ----- Texte -----
 
-with st.sidebar:
-    st.markdown("#### 📂 Daten & Hintergründe")
+    def load_texts(self, category: str) -> List[str]:
+        path = self.get_file_for_category(category)
+        if not path.exists():
+            return []
 
-    font_name = st.text_input("Schriftart", value="Helvetica")
+        try:
+            with path.open("r", encoding="utf-8", errors="ignore") as f:
+                lines = f.readlines()
+        except Exception:
+            return []
 
-    bgs = dm.list_backgrounds(category)
-    use_bg = st.checkbox("BG nutzen", value=bool(bgs))
-    bg_file = None
+        texts = [l.strip() for l in lines if l.strip()]
+        # Duplikate entfernen, Reihenfolge behalten
+        seen = set()
+        clean = []
+        for t in texts:
+            if t not in seen:
+                seen.add(t)
+                clean.append(t)
+        return clean
 
-    if use_bg and bgs:
-        idx = st.number_input(
-            "BG-Index",
-            min_value=1,
-            max_value=len(bgs),
-            value=1,
-            step=1,
-        )
-        bg_file = bgs[idx - 1]
-        st.image(str(bg_file), caption=f"{idx}/{len(bgs)}", use_column_width=True)
-    elif use_bg and not bgs:
-        st.warning("Keine Hintergründe gefunden.")
+    def _clean_old_used_texts(self):
+        now = time.time()
+        lock = self.lock_duration_minutes * 60
+        new_used = {t: ts for t, ts in self.used_texts.items() if (now - ts) < lock}
+        if len(new_used) != len(self.used_texts):
+            self.used_texts = new_used
+            save_json(self.used_texts_file, self.used_texts)
 
-    st.markdown("---")
-    st.caption("Textdateien in `data_content_creator`:")
-    for p in sorted(dm.base_dir.glob("*.txt")):
-        st.text(f"• {p.name}")
-
-
-# ---------- Hauptbereich: 3 Spalten, alles sichtbar ----------
-
-col_text, col_look, col_prev = st.columns([1.1, 0.9, 1.5])
-
-
-# ===== Spalte 1: Text & einfache Batch-Auswahl =====
-
-with col_text:
-    st.markdown("##### Text")
-
-    use_auto_text = st.checkbox(
-        "Auto-Text (Rotation)",
-        value=True,
-        help="Nimmt automatisch den nächsten Spruch aus der .txt-Datei der Kategorie.",
-    )
-
-    if use_auto_text and st.button("🔄 Nächsten Text", use_container_width=True):
-        txt = dm.get_next_text(category)
-        if txt:
-            st.session_state["body_text"] = txt
-        else:
-            st.warning("Keine Texte für diese Kategorie gefunden.")
-
-    default_text = st.session_state.get("body_text", "")
-
-    headline = st.text_input("Headline", value="", label_visibility="visible")
-    body_text = st.text_area(
-        "Haupttext",
-        height=110,
-        value=default_text,
-    )
-
-    st.markdown("---")
-    st.markdown("##### Batch")
-
-    batch_count = st.slider("Anzahl Posts", 1, 8, 4, 1)
-    auto_batch_preview = st.checkbox("Batch-Vorschau direkt unter Bild anzeigen", value=False)
-
-
-# ===== Spalte 2: Look & Feel =====
-
-with col_look:
-    st.markdown("##### Look & Position")
-
-    text_scale = st.slider("Größe", 0.5, 2.5, 1.2, 0.1)
-    pos_y = st.slider("Vertikal", 0.0, 1.0, 0.5, 0.05)
-    pos_x = st.slider("Horizontal", 0.0, 1.0, 0.5, 0.05)
-
-    stroke = st.slider("Rand", 0.0, 5.0, 0.0, 0.1)
-    blur = st.slider("BG-Blur", 0.0, 20.0, 0.0, 0.5)
-
-    st.markdown("---")
-    st.markdown("##### Farben & Effekte")
-
-    col_fx1, col_fx2 = st.columns(2)
-
-    with col_fx1:
-        bg_color = st.color_picker("BG-Farbe", "#000000")
-        use_bw = st.checkbox("B&W", value=False)
-
-    with col_fx2:
-        use_shadow = st.checkbox("Schatten", value=True)
-        use_vignette = st.checkbox("Vignette", value=False)
-        use_custom_color = st.checkbox("Eigene Textfarbe", value=False)
-
-    custom_color = None
-    if use_custom_color:
-        custom_color = st.color_picker("Text", "#FFFFFF")
-
-    st.markdown("---")
-    manual_render = st.checkbox("Nur auf Klick rendern", value=False)
-    if manual_render:
-        render_click = st.button("🎨 Bild aktualisieren", use_container_width=True)
-    else:
-        render_click = True  # immer automatisch (Live-Vorschau)
-
-
-# ===== Spalte 3: Vorschau & Batch-Ausgabe =====
-
-with col_prev:
-    st.markdown("##### Vorschau")
-
-    img_single = None
-
-    # Sofort-Vorschau: immer rendern, wenn Einstellungen/Text sich ändern
-    if render_click:
-        bg_image = None
-        if bg_file is not None:
-            try:
-                bg_image = Image.open(bg_file).convert("RGB")
-            except Exception:
-                bg_image = None
-
-        if not body_text.strip():
-            st.info("Haupttext eingeben oder Auto-Text laden.")
-        else:
-            img_single = ig.create_image(
-                category=category,
-                headline=headline,
-                body=body_text,
-                background_image=bg_image,
-                font_name=font_name.strip() or None,
-                scale=text_scale,
-                pos_x=pos_x,
-                pos_y=pos_y,
-                stroke=stroke,
-                blur=blur,
-                use_shadow=use_shadow,
-                use_bw=use_bw,
-                use_vignette=use_vignette,
-                custom_color=custom_color,
-                bg_color=bg_color,
-            )
-            st.session_state["last_image"] = img_single
-
-    if "last_image" in st.session_state:
-        img_single = st.session_state["last_image"]
-
-    if img_single is not None:
-        st.image(img_single, use_column_width=True)
-
-        buf = io.BytesIO()
-        img_single.save(buf, format="PNG")
-        st.download_button(
-            "💾 Download",
-            data=buf.getvalue(),
-            file_name=f"post_{category}_{int(time.time())}.png",
-            mime="image/png",
-            use_container_width=True,
-        )
-
-    # Optionale Batch-Vorschau direkt unter dem Einzel-Bild
-    if auto_batch_preview and body_text.strip():
-        st.markdown("---")
-        st.markdown("##### Batch-Vorschau")
-
-        texts = []
-        for _ in range(batch_count):
-            t = dm.get_next_text(category)
-            if t:
-                texts.append(t)
-
+    def get_next_text(self, category: str) -> Optional[str]:
+        self._clean_old_used_texts()
+        texts = self.load_texts(category)
         if not texts:
-            st.warning("Keine Texte für Batch gefunden.")
+            return None
+
+        available = [t for t in texts if t not in self.used_texts]
+        if not available:
+            # Reset, wenn alle durch sind
+            self.used_texts = {}
+            save_json(self.used_texts_file, self.used_texts)
+            available = texts
+
+        chosen = random.choice(available)
+        self.used_texts[chosen] = time.time()
+        save_json(self.used_texts_file, self.used_texts)
+        return chosen
+
+    # ----- Hintergründe (Intelligent Matching) -----
+
+    def get_background_folder_path(self, category: str) -> Optional[Path]:
+        """
+        Versucht, einen passenden Ordner zu finden.
+        Strategie:
+        1. Suche nach exaktem Match 'Category Name_backgrounds'
+        2. Suche nach 'filename_backgrounds' (basierend auf .txt)
+        3. Suche nach ähnlichem Namen (fuzzy match)
+        """
+        # 1. Basis-Name aus der Textdatei (z.B. 'motivation' aus 'motivation.txt')
+        txt_path = self.get_file_for_category(category)
+        stem = txt_path.stem  # 'motivation'
+
+        # Kandidaten-Namen
+        candidates = [
+            f"{stem}_backgrounds",
+            f"{category}_backgrounds",
+            f"{stem}_background",
+            f"{category} backgrounds",
+        ]
+
+        # Check exakt
+        for c in candidates:
+            p = self.base_dir / c
+            if p.exists() and p.is_dir():
+                return p
+
+        # Fuzzy Search: Suche Ordner, der den Stem enthält und 'background' heißt
+        for d in self.base_dir.iterdir():
+            if d.is_dir() and "background" in d.name.lower():
+                # Wenn der Stem (z.B. 'motivation') im Ordnernamen vorkommt
+                if stem.lower() in d.name.lower():
+                    return d
+                # Oder Teile des Kategorie-Namens
+                parts = category.lower().split()
+                if any(p in d.name.lower() for p in parts if len(p) > 3):
+                    return d
+        
+        return None
+
+    def list_backgrounds(self, category: str) -> List[Path]:
+        folder = self.get_background_folder_path(category)
+        if not folder or not folder.exists():
+            return []
+        
+        files = []
+        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
+            files.extend(folder.glob(ext))
+            files.extend(folder.glob(ext.upper())) # Case insensitive
+        return sorted(files)
+
+
+# ---------- Bildgenerator ----------
+
+class ImageGenerator:
+    """
+    Web-tauglicher Bildgenerator mit:
+    - Live-Vorschau Optimierung
+    - Wasserzeichen für spezifische Kategorien
+    - Großem Text & sauberen Rändern
+    """
+
+    def __init__(self, data_manager: WebDataManager):
+        self.dm = data_manager
+        self.image_size = (1080, 1350)
+
+    # -- Fonts --
+    def get_font(self, font_name: Optional[str], size: int) -> ImageFont.FreeTypeFont:
+        if not font_name:
+            font_name = "Helvetica"
+
+        # Priorität: Projekt-Fonts -> System-Fonts -> Fallback
+        fonts_dir = self.dm.base_dir / "fonts"
+        candidates = [
+            fonts_dir / font_name,
+            fonts_dir / f"{font_name}.ttf",
+            fonts_dir / f"{font_name}.otf",
+            Path("/Library/Fonts") / f"{font_name}.ttf",
+            Path("/System/Library/Fonts") / f"{font_name}.ttc",
+        ]
+        
+        for p in candidates:
+            if p.exists():
+                try: return ImageFont.truetype(str(p), size=size)
+                except: continue
+        
+        try: return ImageFont.truetype(font_name, size=size)
+        except: return ImageFont.load_default()
+
+    def calculate_auto_color(self, image: Image.Image) -> str:
+        if not image: return "#FFFFFF"
+        thumb = image.resize((1, 1))
+        color = thumb.getpixel((0, 0))
+        if isinstance(color, int): b = color
+        else: b = (color[0]*299 + color[1]*587 + color[2]*114) / 1000
+        return "#FFFFFF" if b < 120 else "#000000"
+
+    def prepare_background(self, img_source: Optional[Image.Image]) -> Image.Image:
+        target_w, target_h = self.image_size
+        if not img_source:
+            return Image.new("RGB", self.image_size, "#000000")
+
+        img_ratio = img_source.width / img_source.height
+        target_ratio = target_w / target_h
+
+        if img_ratio > target_ratio:
+            new_height = target_h
+            new_width = int(new_height * img_ratio)
         else:
-            cols = st.columns(2)
-            for i, txt in enumerate(texts):
-                col = cols[i % 2]
+            new_width = target_w
+            new_height = int(new_width / img_ratio)
 
-                bg_for_post = None
-                if use_bg and bgs:
-                    try:
-                        bg_for_post = Image.open(bgs[i % len(bgs)]).convert("RGB")
-                    except Exception:
-                        bg_for_post = None
-                elif bg_file is not None:
-                    try:
-                        bg_for_post = Image.open(bg_file).convert("RGB")
-                    except Exception:
-                        bg_for_post = None
+        img_resized = img_source.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        
+        # Center Crop
+        left = (new_width - target_w) / 2
+        top = (new_height - target_h) / 2
+        right = (new_width + target_w) / 2
+        bottom = (new_height + target_h) / 2
+        return img_resized.crop((left, top, right, bottom))
 
-                img = ig.create_image(
-                    category=category,
-                    headline="",
-                    body=txt,
-                    background_image=bg_for_post,
-                    font_name=font_name.strip() or None,
-                    scale=text_scale,
-                    pos_x=pos_x,
-                    pos_y=pos_y,
-                    stroke=stroke,
-                    blur=blur,
-                    use_shadow=use_shadow,
-                    use_bw=use_bw,
-                    use_vignette=use_vignette,
-                    custom_color=custom_color,
-                    bg_color=bg_color,
-                )
+    def wrap_text(self, text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> List[str]:
+        lines, words = [], text.split()
+        current_line = ""
+        for word in words:
+            test_line = f"{current_line} {word}".strip()
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            if (bbox[2] - bbox[0]) <= max_width:
+                current_line = test_line
+            else:
+                if current_line: lines.append(current_line)
+                current_line = word
+        if current_line: lines.append(current_line)
+        return lines
 
-                with col:
-                    st.image(img, use_column_width=True, caption=f"#{i+1}")
-                    st.write(txt)
+    def create_image(
+        self,
+        category: str,
+        headline: str,
+        body: str,
+        *,
+        background_image: Optional[Image.Image],
+        font_name: Optional[str],
+        scale: float,
+        pos_x: float,
+        pos_y: float,
+        stroke: float,
+        blur: float,
+        use_shadow: bool,
+        use_bw: bool,
+        use_vignette: bool,
+        custom_color: Optional[str],
+        bg_color: str = "#000000",
+    ) -> Image.Image:
+        
+        # Quadratisch für bestimmte Kategorien (Fuzzy Match auf Namen)
+        cat_lower = category.lower()
+        if any(x in cat_lower for x in ["krasser", "miststück", "zieh ab", "arschloch"]):
+            self.image_size = (960, 960)
+        else:
+            self.image_size = (1080, 1350)
+
+        # Background
+        if background_image:
+            img = self.prepare_background(background_image)
+        else:
+            img = Image.new("RGB", self.image_size, bg_color)
+
+        # Filter
+        if use_bw:
+            img = ImageOps.grayscale(img).convert("RGB")
+            img = ImageEnhance.Contrast(img).enhance(1.2)
+        if blur > 0:
+            img = img.filter(ImageFilter.GaussianBlur(radius=blur))
+        if use_vignette:
+            overlay = Image.new("RGBA", self.image_size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(overlay)
+            draw.rectangle([(0, 0), self.image_size], fill=(0, 0, 0, 100))
+            img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+
+        draw = ImageDraw.Draw(img)
+
+        # Farben
+        if custom_color: text_color = custom_color
+        else: text_color = self.calculate_auto_color(img)
+        
+        stroke_color = "#000000" if text_color == "#FFFFFF" else "#FFFFFF"
+
+        # Fonts & Größe (Großzügig berechnet)
+        base_size = 100 if self.image_size == (960, 960) else 80
+        font_head = self.get_font(font_name, int(base_size * scale * 1.2))
+        font_body = self.get_font(font_name, int(base_size * scale))
+
+        if self.image_size == (960, 960):
+            headline = (headline or "").upper()
+            body = (body or "").upper()
+
+        # Layout-Constraints
+        margin_side = 150 # ~1.5cm
+        top_safe = int(self.image_size[1] * 0.25) # Obere 25% frei
+        bottom_safe = int(self.image_size[1] * 0.95)
+        max_width = self.image_size[0] - (2 * margin_side)
+
+        lines_head = self.wrap_text(headline, font_head, max_width, draw) if headline else []
+        lines_body = self.wrap_text(body, font_body, max_width, draw) if body else []
+
+        def get_h(lines, f):
+            return sum([draw.textbbox((0,0), l, font=f)[3] - draw.textbbox((0,0), l, font=f)[1] for l in lines])
+
+        h_head = get_h(lines_head, font_head)
+        h_body = get_h(lines_body, font_body)
+        
+        spacing = 10
+        block_gap = 40
+        
+        total_h = 0
+        if lines_head: total_h += h_head + (len(lines_head)-1)*spacing
+        if lines_body: total_h += h_body + (len(lines_body)-1)*spacing
+        if lines_head and lines_body: total_h += block_gap
+
+        # Vertikale Positionierung im erlaubten Bereich
+        min_y = top_safe
+        max_y = bottom_safe - total_h
+        if max_y < min_y: max_y = min_y # Fallback wenn Text zu lang
+        
+        start_y = min_y + (max_y - min_y) * pos_y
+
+        # Helper Drawing
+        def draw_block(lines, font, y_start, painter, fill, s_width=0, s_fill=None):
+            y = y_start
+            for l in lines:
+                bbox = draw.textbbox((0,0), l, font=font)
+                w = bbox[2]-bbox[0]
+                h = bbox[3]-bbox[1]
+                
+                # Horizontal Positionierung (mit Margin)
+                avail_w = self.image_size[0] - w - (2 * margin_side)
+                x = margin_side + (avail_w * pos_x)
+                
+                if s_width > 0:
+                    painter.text((x, y), l, font=font, fill=fill, stroke_width=s_width, stroke_fill=s_fill)
+                else:
+                    painter.text((x, y), l, font=font, fill=fill)
+                
+                y += h + spacing
+            return y
+
+        # Schatten
+        if use_shadow:
+            shadow_layer = Image.new("RGBA", img.size, (0,0,0,0))
+            s_draw = ImageDraw.Draw(shadow_layer)
+            
+            # Schattenfarbe ermitteln
+            if text_color == "#FFFFFF": s_rgba = (0,0,0,180)
+            else: s_rgba = (255,255,255,180)
+            
+            sy = start_y + 3 # Offset
+            sy = draw_block(lines_head, font_head, sy, s_draw, s_rgba)
+            if lines_head and lines_body: sy += block_gap
+            draw_block(lines_body, font_body, sy, s_draw, s_rgba)
+            
+            shadow_layer = shadow_layer.filter(ImageFilter.GaussianBlur(radius=4))
+            img = Image.alpha_composite(img.convert("RGBA"), shadow_layer).convert("RGB")
+            draw = ImageDraw.Draw(img)
+
+        # Haupttext
+        ty = start_y
+        s_w = int(stroke)
+        ty = draw_block(lines_head, font_head, ty, draw, text_color, s_w, stroke_color)
+        if lines_head and lines_body: ty += block_gap
+        end_y = draw_block(lines_body, font_body, ty, draw, text_color, s_w, stroke_color)
+
+        # Wasserzeichen
+        # Mapping: Keyword im Kategorienamen -> Wasserzeichentext
+        wm_text = None
+        if "narzissmus" in cat_lower: wm_text = "Isaak Öztürk"
+        elif "herz" in cat_lower or "umfragen" in cat_lower: wm_text = "Herzwelt"
+        
+        if wm_text:
+            wm_font = self.get_font("Noteworthy", 40)
+            wm_bbox = draw.textbbox((0,0), wm_text, font=wm_font)
+            wm_w = wm_bbox[2]-wm_bbox[0]
+            wm_x = (self.image_size[0] - wm_w) / 2
+            wm_y = end_y + 50
+            draw.text((wm_x, wm_y), wm_text, font=wm_font, fill=text_color)
+
+        return img
