@@ -329,16 +329,24 @@ class ImageGenerator:
 
         stroke_color = "#000000" if text_color == "#FFFFFF" else "#FFFFFF"
 
-        base_size = 90 if category in ["Zieh ab, Arschloch", "Krasser Strass"] else 60
-        font_head = self.get_font(font_name, int(base_size * scale * 1.3))
+          # Grundgröße etwas größer wählen, damit Standard nicht zu klein ist
+        base_size = 100 if category in ["Zieh ab, Arschloch", "Krasser Strass"] else 80
+        font_head = self.get_font(font_name, int(base_size * scale * 1.2))
         font_body = self.get_font(font_name, int(base_size * scale))
+
 
         if category in ["Zieh ab, Arschloch", "Krasser Strass"]:
             headline = (headline or "").upper()
             body = (body or "").upper()
 
-        margin_px = 120
-        max_width = self.image_size[0] - (2 * margin_px)
+               # Innenabstände:
+        # links/rechts ca. 1.5cm -> je nach Auflösung ca. 140–160px, wir nehmen 150px
+        margin_side = 150
+        # oben soll die obere 25%-Zone frei bleiben
+        top_safe_ratio = 0.25
+        top_safe = int(self.image_size[1] * top_safe_ratio)
+        max_width = self.image_size[0] - (2 * margin_side)
+
 
         lines_head = self.wrap_text(headline, font_head, max_width, draw) if headline else []
         lines_body = self.wrap_text(body, font_body, max_width, draw) if body else []
@@ -356,7 +364,7 @@ class ImageGenerator:
         line_spacing = 10
         block_spacing = 40
 
-        total_content_height = 0
+                total_content_height = 0
         if lines_head:
             total_content_height += h_head + (len(lines_head) - 1) * line_spacing
         if lines_body:
@@ -364,7 +372,17 @@ class ImageGenerator:
         if lines_head and lines_body:
             total_content_height += block_spacing
 
-        current_y = (self.image_size[1] - total_content_height) * pos_y
+        # Vertikaler Bereich, in dem Text liegen darf:
+        # oben 25% frei, unten 5% Reserve
+        bottom_safe = int(self.image_size[1] * 0.95)
+        min_y = top_safe
+        max_y = bottom_safe - total_content_height
+        if max_y < min_y:
+            max_y = min_y
+
+        # pos_y steuert jetzt nur noch innerhalb dieses erlaubten Bereichs
+        current_y = min_y + (max_y - min_y) * pos_y
+
 
         s_width = int(stroke)
 
@@ -392,8 +410,9 @@ class ImageGenerator:
                     bbox = draw.textbbox((0, 0), l, font=font)
                     w = bbox[2] - bbox[0]
                     h = bbox[3] - bbox[1]
-                    avail = self.image_size[0] - w - (2 * margin_px)
-                    x = margin_px + (avail * pos_x)
+                                        avail = self.image_size[0] - w - (2 * margin_side)
+                    x = margin_side + (avail * pos_x)
+
                     painter.text((x+3, y+3), l, font=font, fill=shadow_rgba)
                     y += h + line_spacing
                 return y
