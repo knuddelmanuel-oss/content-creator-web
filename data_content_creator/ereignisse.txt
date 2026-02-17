@@ -1,0 +1,95 @@
+hema: 4-Tage-Woche bei vollem Lohnausgleich. Ein Zukunftsmodell oder eine Gefahr für die Wirtschaft?
+Thema: Künstliche Intelligenz in der Schule. Sollte der Umgang mit Tools wie ChatGPT ein eigenes Schulfach werden?
+Thema: Tempolimit auf deutschen Autobahnen. Eine notwendige Maßnahme für Klima und Sicherheit oder unnötige Bevormundung?
+Thema: Soziale Medien und mentale Gesundheit. Tust du aktiv etwas, um deine Bildschirmzeit zu begrenzen?
+Thema: Bargeld vs. Kartenzahlung. Womit zahlst du lieber und glaubst du, das Bargeld wird bald abgeschafft?
+Thema: Home-Office. Sollten Arbeitnehmer ein Recht auf Home-Office haben?
+Thema: Bedingungsloses Grundeinkommen. Eine Lösung für soziale Ungleichheit oder ein Hemmnis für die Arbeitsmoral?
+Thema: Veganismus. Eine persönliche Entscheidung oder eine moralische Notwendigkeit für den Planeten?
+Thema: E-Autos. Sind sie wirklich die umweltfreundliche Zukunft der Mobilität?
+Thema: Influencer-Marketing. Eine authentische Werbeform oder irreführende Schleichwerbung?
+Thema: Gendern in der Sprache. Ein wichtiger Schritt zur Gleichberechtigung oder unnötige Verkomplizierung?
+Thema: Gaming als anerkannter Sport (E-Sport). Gehört es auf eine Stufe mit traditionellem Sport?
+Thema: Privatsphäre im digitalen Zeitalter. Geben wir zu viele unserer Daten freiwillig preis?
+Thema: Fast Fashion. Wie kann man nachhaltiger mit Kleidung umgehen, ohne auf Stil zu verzichten?
+Thema: Atomenergie als 'grüne' Energiequelle. Eine sinnvolle Brückentechnologie oder ein unkalkulierbares Risiko?
+Thema: Sollte die allgemeine Wehrpflicht in Deutschland wieder eingeführt werden?
+Thema: Minimalismus. Ein Weg zu mehr Freiheit oder nur ein vorübergehender Trend?
+Thema: Sollten Supermärkte gesetzlich verpflichtet werden, keine Lebensmittel mehr wegzuwerfen?
+Thema: Der Wert eines Hochschulabschlusses. Ist eine Ausbildung heute eventuell sinnvoller?
+Thema: Work-Life-Blending statt Work-Life-Balance. Wie verschwimmen Arbeit und Freizeit bei dir?
+Thema: Schönheitsoperationen. Ein Akt der Selbstliebe oder ein problematischer Druck zur Perfektion?
+Thema: Sollten Tierversuche für Kosmetika weltweit verboten werden?
+Thema: Der Aufstieg von Streaming-Diensten. Schaust du noch klassisches Fernsehen?
+Thema: Ist Loyalität gegenüber einem Arbeitgeber heute noch zeitgemäß?
+Thema: Das traditionelle Familienbild. Hat es ausgedient?
+Thema: Sollten Schulfächer wie "Glück" oder "Alltagskompetenz" eingeführt werden?
+Thema: Die Macht der Algorithmen. Wie sehr beeinflussen sie deine täglichen Entscheidungen?
+Thema: Ist es egoistisch, in der heutigen Zeit noch Kinder zu bekommen?
+Thema: Sollte der öffentliche Nahverkehr für alle kostenlos sein?
+Thema: Der Traum vom Auswandern. In welches Land würdest du ziehen, wenn du könntest?
+Thema: Müssen wir unseren Fleischkonsum drastisch reduzieren, um das Klima zu retten?
+Thema: Die Rolle von Traditionen in einer modernen Gesellschaft. Was sollte bewahrt werden?
+Thema: Ist ein Leben ohne Smartphone heute überhaupt noch möglich?
+Thema: Sollte es eine "Reichensteuer" geben, um soziale Ungerechtigkeit zu verringern?
+Thema: Der Wert von Handarbeit gegenüber maschineller Massenproduktion.
+Thema: Sollten alle Drogen legalisiert und staatlich kontrolliert werden?
+Thema: Wie wichtig ist Patriotismus in einer globalisierten Welt?
+Thema: Ist die "Cancel Culture" eine Form von gerechter Kritik oder moderner Zensur?
+Thema: Das Konzept der "toxischen Positivität". Muss man immer optimistisch sein?
+Thema: Würdest du ein selbstfahrendes Auto benutzen?
+Thema: Sollte Wählen gehen eine Bürgerpflicht sein?
+Thema: Wie hat sich der Begriff "Freundschaft" durch soziale Medien verändert?
+Thema: Ist es moralisch vertretbar, Tiere in Zoos zu halten?
+Thema: Der Trend zur Selbstoptimierung. Setzen wir uns selbst zu sehr unter Druck?
+Thema: Sollte der Besitz von Luxusgütern stärker besteuert werden?
+Thema: Ist die Besiedlung des Mars eine realistische Zukunftsvision oder Geldverschwendung?
+Thema: Wie gehen wir mit Einsamkeit in einer vernetzten Welt um?
+Thema: Sollte es ein Verfallsdatum für politische Ämter geben (Amtszeitbegrenzung)?
+Thema: Die Bedeutung von Dialekten und regionalen Sprachen. Ein Kulturgut, das schwindet?
+Thema: Ist ein universeller, digitaler Impfpass eine gute Idee?
+Thema: Der Umgang mit Fehlern. Sehen wir sie als Katastrophe oder als Chance zum Lernen?
+Thema: Ist es wichtiger, einen Job zu haben, der viel Geld bringt, oder einen, der glücklich macht?
+Thema: Wie hat das Internet die Art und Weise verändert, wie wir trauern?
+Thema: Sollte es ein Recht auf Reparatur für elektronische Geräte geben?
+Thema: Die Zukunft der Arbeit. Werden Roboter und KI uns überflüssig machen?
+Thema: Ist ein Monat kompletter Social-Media-Verzicht (Digital Detox) heilsam?
+Thema: Der Wert von Stille in einer lauten Welt.
+Thema: Sollten Eltern für die Online-Aktivitäten ihrer minderjährigen Kinder haften?
+Thema: Wie wichtig ist dir ein "Made in Germany"-Siegel?
+Thema: Ist es besser, zur Miete zu wohnen oder Eigentum zu besitzen?
+Thema: Der Umgang mit dem Älterwerden. Ein Tabuthema oder eine natürliche Phase?
+Thema: Sollten Noten in der Schule abgeschafft werden?
+Thema: Die Ethik hinter personalisierter Werbung.
+Thema: Ist es möglich, wirklich gute Freunde zu sein, wenn man politisch komplett anderer Meinung ist?
+Thema: Der Einfluss von "True Crime"-Podcasts und -Dokus auf unsere Wahrnehmung von Kriminalität.
+Thema: Sollte man für schlechte Erziehung einen "Eltern-Führerschein" brauchen?
+Thema: Der Wert von Langeweile für die Kreativität.
+Thema: Ist es sinnvoll, Kinder zweisprachig zu erziehen?
+Thema: Die Zukunft des Buches. Wird das gedruckte Buch vom E-Book verdrängt?
+Thema: Wie hat sich die Dating-Kultur durch Apps wie Tinder verändert?
+Thema: Ist es okay, Essen zu fotografieren und zu posten, bevor man isst?
+Thema: Sollten Nationalhymnen bei internationalen Sportveranstaltungen noch gesungen werden?
+Thema: Die Rolle von Verschwörungstheorien in der heutigen Gesellschaft.
+Thema: Ist der "American Dream" – vom Tellerwäscher zum Millionär – heute noch realistisch?
+Thema: Wie wichtig ist Handschrift in einer digitalen Welt?
+Thema: Sollten Unternehmen gezwungen werden, eine Frauenquote in Führungspositionen zu erfüllen?
+Thema: Der Trend zu Tiny Houses. Eine Lösung für den Wohnraummangel?
+Thema: Ist es vertretbar, Kinderfotos in sozialen Medien zu posten?
+Thema: Der Wert eines Sabbaticals oder einer längeren Auszeit vom Job.
+Thema: Sollte es ein allgemeines Verbot für Feuerwerk an Silvester geben?
+Thema: Wie definierst du "Erfolg" für dich persönlich?
+Thema: Ist es besser, viele Bekannte oder nur wenige, enge Freunde zu haben?
+Thema: Der Einfluss von Superhelden-Filmen auf unsere Vorstellung von Gut und Böse.
+Thema: Sollten "Soft Skills" wie Empathie in der Schule genauso wichtig sein wie Mathematik?
+Thema: Die Ethik der künstlichen Befruchtung und Leihmutterschaft.
+Thema: Ist es sinnvoll, alte Freundschaften um jeden Preis aufrechtzuerhalten?
+Thema: Wie hat sich unsere Wahrnehmung von Nachrichten durch 24-Stunden-Nachrichtensender verändert?
+Thema: Sollte es ein Schulfach "Finanzielle Bildung" geben?
+Thema: Der Wert von Ritualen und Routinen im Alltag.
+Thema: Ist es okay, ein Re-make eines Filmklassikers zu produzieren?
+Thema: Die Zukunft der Ernährung. Werden Insekten und Laborfleisch zur Normalität?
+Thema: Wie wichtig ist es, einer politischen Partei anzugehören, um die Gesellschaft zu verändern?
+Thema: Ist die Idee der "Seelenverwandtschaft" ein romantischer Mythos oder Realität?
+Thema: Der Umgang mit dem Tod in der westlichen Gesellschaft.
+Thema: Sollten Sportwetten stärker reguliert oder sogar verboten werden?

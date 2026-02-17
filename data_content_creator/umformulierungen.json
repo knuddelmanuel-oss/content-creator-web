@@ -1,0 +1,18 @@
+{
+    "bin": [
+        "bin",
+        "bist",
+        "war",
+        "bin halt"
+    ],
+    "nicht": [
+        "kein",
+        "niemals",
+        "nie"
+    ],
+    "sch\u00f6n": [
+        "h\u00fcbsch",
+        "reizend",
+        "attraktiv"
+    ]
+}
