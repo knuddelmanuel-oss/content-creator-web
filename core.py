@@ -47,12 +47,11 @@ class WebDataManager:
 
         # Rotation Logic
         now = time.time()
-        # Clean old locks (15 mins)
         self.used_texts = {k:v for k,v in self.used_texts.items() if (now-v) < 900}
         
         avail = [t for t in lines if t not in self.used_texts]
         if not avail: 
-            avail = lines # Reset if all used
+            avail = lines 
             self.used_texts = {}
         
         chosen = random.choice(avail)
@@ -64,15 +63,11 @@ class WebDataManager:
         
         return chosen
 
-    # THIS IS THE FIXED METHOD
     def get_backgrounds(self, category):
         if category not in self.categories: return []
-        
-        # Try to find folder matching the text file name
-        stem = self.categories[category].stem.lower() # e.g. "narzissmus"
+        stem = self.categories[category].stem.lower()
         
         found = None
-        # 1. Look for folder containing stem AND "background"
         for d in self.base_dir.iterdir():
             if d.is_dir():
                 d_name = d.name.lower()
@@ -81,23 +76,46 @@ class WebDataManager:
                     break
         
         if not found: return []
-        
-        # Return all images in that folder
         exts = {".jpg", ".jpeg", ".png", ".webp"}
         return sorted([f for f in found.glob("*") if f.suffix.lower() in exts])
 
 
-# --- PRO IMAGE GENERATOR ---
+# --- PRO IMAGE GENERATOR (FIXED FONT) ---
 class ImageGenerator:
     def __init__(self, dm):
         self.dm = dm
 
     def get_font(self, size):
-        cands = ["Helvetica-Bold", "Arial Bold", "/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial Bold.ttf"]
-        for c in cands:
+        """
+        Robust font loading that works on Mac, Linux (Streamlit Cloud), and Windows.
+        """
+        # 1. Look in project 'fonts' folder first
+        project_fonts = self.dm.base_dir / "fonts"
+        if project_fonts.exists():
+            for f in project_fonts.glob("*.[to]tf"):
+                try: return ImageFont.truetype(str(f), size)
+                except: continue
+
+        # 2. Common System Fonts (Linux/Mac)
+        candidates = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", # Linux Standard
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf", # Linux
+            "arial.ttf", "Arial.ttf",
+            "/Library/Fonts/Arial Bold.ttf", # Mac
+            "/System/Library/Fonts/Helvetica.ttc" # Mac
+        ]
+        
+        for c in candidates:
             try: return ImageFont.truetype(c, size)
             except: continue
-        return ImageFont.load_default()
+            
+        # 3. Absolute Fallback (Default PIL font)
+        # Note: load_default() returns a font that might NOT support size parameter in older PIL
+        # But in newer Pillow it does. We try-except.
+        try:
+            return ImageFont.load_default()
+        except:
+            return ImageFont.load_default()
 
     def render(self, category, text, bg_path=None, scale=1.0, pos_y=0.5, pos_x=0.5, 
                shadow=True, bw=False, blur=0, vignette=False, custom_col=None,
@@ -119,7 +137,6 @@ class ImageGenerator:
             except: img = Image.new("RGB", (W,H), "#111")
         else: img = Image.new("RGB", (W,H), "#111")
 
-        # Filters
         if bw: img = ImageOps.grayscale(img).convert("RGB")
         if blur > 0: img = img.filter(ImageFilter.GaussianBlur(blur))
         if vignette:
@@ -146,17 +163,32 @@ class ImageGenerator:
         max_w = W - 2*mx
         
         lines = []
-        for par in text.split('\n'):
-            words, cur = par.split(), ""
-            for w in words:
-                test = (cur + " " + w).strip()
-                if draw.textbbox((0,0), test, font=font)[2] <= max_w: cur = test
-                else: 
-                    if cur: lines.append(cur)
-                    cur = w
-            if cur: lines.append(cur)
+        # Safer wrapping logic
+        try:
+            for par in text.split('\n'):
+                words, cur = par.split(), ""
+                for w in words:
+                    test = (cur + " " + w).strip()
+                    # Check text length
+                    if draw.textlength(test, font=font) <= max_w: 
+                        cur = test
+                    else: 
+                        if cur: lines.append(cur)
+                        cur = w
+                if cur: lines.append(cur)
+        except Exception:
+            # Fallback for old PIL or font issues
+            lines = [text]
 
-        line_h = [draw.textbbox((0,0), l, font=font)[3] for l in lines]
+        # Calculate heights safely
+        line_h = []
+        for l in lines:
+            try:
+                bbox = draw.textbbox((0,0), l, font=font)
+                line_h.append(bbox[3] - bbox[1])
+            except:
+                line_h.append(40) # Fallback height
+
         space = 20
         tot_h = sum(line_h) + (len(lines)-1)*space
         
@@ -166,19 +198,30 @@ class ImageGenerator:
         def paint(ptr, col, off=0, strk=0, scol=None):
             y = start_y + off
             for i, l in enumerate(lines):
-                lw = draw.textbbox((0,0), l, font=font)[2]
+                try:
+                    lw = ptr.textlength(l, font=font)
+                except:
+                    bbox = ptr.textbbox((0,0), l, font=font)
+                    lw = bbox[2] - bbox[0]
+
                 x = mx + ((W - 2*mx - lw) * pos_x)
-                if strk: ptr.text((x, y), l, font, fill=col, stroke_width=strk, stroke_fill=scol)
-                else: ptr.text((x, y), l, font, fill=col)
+                
+                # FIXED: Ensure color is valid tuple/string
+                if strk: 
+                    ptr.text((x, y), l, font, fill=col, stroke_width=strk, stroke_fill=scol)
+                else: 
+                    ptr.text((x, y), l, font, fill=col)
                 y += line_h[i] + space
 
         if shadow:
             s_im = Image.new("RGBA", (W,H), (0,0,0,0))
-            paint(ImageDraw.Draw(s_im), (0,0,0,160) if fill=="#FFFFFF" else (255,255,255,160), off=8)
+            # Fix color tuple for shadow
+            shad_col = (0,0,0,160) if fill=="#FFFFFF" else (255,255,255,160)
+            paint(ImageDraw.Draw(s_im), shad_col, off=8)
             img = Image.alpha_composite(img.convert("RGBA"), s_im.filter(ImageFilter.GaussianBlur(5))).convert("RGB")
             draw = ImageDraw.Draw(img)
 
-        paint(draw, fill, strk=int(bw), scol="#000" if fill=="#FFF" else "#FFF")
+        paint(draw, fill, strk=int(bw), scol="#000000" if fill=="#FFFFFF" else "#FFFFFF")
 
         # Watermark
         wm = None
@@ -191,7 +234,7 @@ class ImageGenerator:
             wbb = draw.textbbox((0,0), wm, font=fwm)
             draw.text(((W-(wbb[2]-wbb[0]))/2, H-90), wm, font=fwm, fill=fill)
 
-        # Overlay Mockup
+        # Overlay
         if draw_overlay:
             ov = Image.new("RGBA", (W,H), (0,0,0,0))
             d = ImageDraw.Draw(ov)
