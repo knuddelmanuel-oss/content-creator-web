@@ -6,44 +6,16 @@ from core import WebDataManager, ImageGenerator
 from streamlit_paste_button import paste_image_button as pbutton
 
 # --- CONFIG ---
-st.set_page_config(page_title="CC Pro", layout="wide", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="CC Pro Agency", layout="wide", initial_sidebar_state="collapsed")
 
-# --- CSS HACKS ---
 st.markdown("""
 <style>
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 2rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
-    }
-    div.row-widget.stRadio > div {
-        flex-direction: row;
-        justify-content: flex-start;
-        overflow-x: auto;
-        gap: 0.5rem;
-        padding-bottom: 5px;
-    }
-    div.row-widget.stRadio > div > label {
-        background-color: #262730;
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        border: 1px solid #444;
-        cursor: pointer;
-        font-weight: bold;
-        white-space: nowrap;
-    }
-    div.row-widget.stRadio > div > label:hover { border-color: #FF4B4B; }
-    div[data-testid="stVerticalBlock"] { gap: 0.5rem; }
-    
-    /* Grid für Batch */
-    .batch-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    header, footer {visibility: hidden;}
+    .block-container { padding: 1rem !important; }
+    .stButton > button { border-radius: 8px; font-weight: 600; width: 100%; }
 </style>
 """, unsafe_allow_html=True)
 
-# --- STATE ---
 if 'dm' not in st.session_state:
     st.session_state.dm = WebDataManager()
     st.session_state.ig = ImageGenerator(st.session_state.dm)
@@ -51,108 +23,107 @@ if 'dm' not in st.session_state:
 dm = st.session_state.dm
 ig = st.session_state.ig
 
-# --- CALLBACKS ---
+# --- LOGIC ---
 def on_cat_change():
     cat = st.session_state.sel_cat
     st.session_state.cur_text = dm.get_next_text(cat)
+    # This matches the method in core.py now!
     st.session_state.bg_list = dm.get_backgrounds(cat)
     st.session_state.bg_idx = 0
-    # Batch-Texte vorladen (optional)
     st.session_state.batch_texts = [dm.get_next_text(cat) for _ in range(6)]
 
-def on_new_text():
-    cat = st.session_state.sel_cat
-    st.session_state.cur_text = dm.get_next_text(cat)
+def set_bg(idx):
+    st.session_state.bg_idx = idx
 
 # --- UI ---
-
-# 1. Kategorien
 cats = dm.get_categories()
-if not cats: st.error("Keine Kategorien!"); st.stop()
+if not cats: st.error("Keine Daten!"); st.stop()
 
 if 'sel_cat' not in st.session_state:
     st.session_state.sel_cat = cats[0]
-    on_cat_change()
+    on_cat_change() # Init
 
+# Categories
 st.radio("Kategorie", cats, key="sel_cat", horizontal=True, label_visibility="collapsed", on_change=on_cat_change)
 
-# 2. Tabs für verschiedene Modi
-tab_create, tab_batch, tab_import = st.tabs(["🎨 Einzel-Post", "🚀 Batch-Grid (6x)", "📥 Inspiration & Import"])
+tab_edit, tab_batch, tab_clip = st.tabs(["✨ Editor", "📦 Batch (Masse)", "📋 Import"])
 
-# --- TAB 1: EINZEL-POST (Dein Haupt-Arbeitsbereich) ---
-with tab_create:
-    col_ctrl, col_prev = st.columns([1, 1.3])
+# === EDITOR ===
+with tab_edit:
+    c_ctrl, c_view = st.columns([1, 1.4])
     
-    with col_ctrl:
-        st.markdown("**Inhalt & Design**")
-        txt_input = st.text_area("Text", value=st.session_state.cur_text, height=140, label_visibility="collapsed")
+    with c_ctrl:
+        st.caption("CONTENT")
+        st.text_area("Text", value=st.session_state.cur_text, key="cur_text", height=100, label_visibility="collapsed")
+        st.button("🎲 Neuer Spruch", on_click=lambda: st.session_state.update(cur_text=dm.get_next_text(st.session_state.sel_cat)))
         
-        c1, c2 = st.columns(2)
-        c1.button("🎲 Neuer Spruch", on_click=on_new_text, use_container_width=True)
+        st.markdown("---")
+        st.caption(f"HINTERGRUND ({len(st.session_state.bg_list)})")
         
         bgs = st.session_state.bg_list
         if bgs:
-            bg_idx = st.slider(f"Hintergrund ({len(bgs)})", 0, len(bgs)-1, key="bg_idx")
-            cur_bg_path = bgs[bg_idx]
+            with st.expander("🖼 Hintergrund-Galerie", expanded=False):
+                cols = st.columns(5)
+                for i, bg_p in enumerate(bgs):
+                    with cols[i % 5]:
+                        if st.button(f"{i+1}", key=f"bg_{i}"): set_bg(i)
+            st.caption(f"Gewählt: {bgs[st.session_state.bg_idx].name}")
         else:
-            st.warning("Keine BG Bilder")
-            cur_bg_path = None
-            
+            st.warning("Keine Bilder gefunden.")
+        
         st.markdown("---")
-        c_s1, c_s2 = st.columns(2)
-        scale = c_s1.slider("Größe", 0.5, 2.5, 1.0, 0.1)
-        pos_y = c_s2.slider("Pos Y", 0.0, 1.0, 0.5, 0.05)
+        c1, c2 = st.columns(2)
+        scale = c1.slider("Größe", 0.5, 2.5, 1.0)
+        pos_y = c2.slider("Pos Y", 0.0, 1.0, 0.5)
+        show_mockup = st.checkbox("📱 Instagram Overlay", value=False)
+
+    with c_view:
+        cur_bg = bgs[st.session_state.bg_idx] if bgs else None
         
-        c_o1, c_o2 = st.columns(2)
-        shadow = c_o1.checkbox("Schatten", True)
-        bw = c_o2.checkbox("B&W", False)
-        
-    with col_prev:
-        # LIVE RENDER
-        final_img = ig.render(
-            st.session_state.sel_cat, txt_input, cur_bg_path,
-            scale=scale, pos_y=pos_y, pos_x=0.5,
-            shadow=shadow, bw=bw
+        img = ig.render(
+            st.session_state.sel_cat, 
+            st.session_state.cur_text, 
+            cur_bg, 
+            scale=scale, pos_y=pos_y, 
+            draw_overlay=show_mockup, 
+            shadow=True
         )
-        st.image(final_img, use_column_width=True)
+        st.image(img, use_column_width=True)
         
+        # Download clean version logic
+        if show_mockup:
+            dl_img = ig.render(st.session_state.sel_cat, st.session_state.cur_text, cur_bg, scale=scale, pos_y=pos_y, draw_overlay=False, shadow=True)
+        else:
+            dl_img = img
+            
         buf = io.BytesIO()
-        final_img.save(buf, format="PNG")
-        st.download_button("💾 Speichern", data=buf.getvalue(), 
-                           file_name=f"Post_{int(time.time())}.png", 
-                           mime="image/png", type="primary", use_container_width=True)
+        dl_img.save(buf, format="PNG")
+        st.download_button("⬇️ Bild speichern", data=buf.getvalue(), file_name="Post.png", mime="image/png", type="primary", use_container_width=True)
 
-# --- TAB 2: BATCH GRID (Masse machen) ---
+# === BATCH ===
 with tab_batch:
-    st.markdown("### 🚀 6 Posts auf einen Streich")
-    if st.button("🔄 Neue 6er Ladung generieren"):
+    c_h, c_a = st.columns([3, 1])
+    c_h.markdown("### 🏭 Massenproduktion")
+    if c_a.button("🔄 Neue Sprüche"):
         st.session_state.batch_texts = [dm.get_next_text(st.session_state.sel_cat) for _ in range(6)]
-    
-    if 'batch_texts' in st.session_state:
-        # Wir bauen 2 Spalten mit je 3 Bildern
-        b_cols = st.columns(3)
-        for i, t in enumerate(st.session_state.batch_texts):
-            # Zufalls-Hintergrund für jeden Post
-            bg_p = bgs[i % len(bgs)] if bgs else None
-            
-            img = ig.render(st.session_state.sel_cat, t, bg_p, scale=1.0, pos_y=0.5, shadow=True)
-            
-            with b_cols[i % 3]:
-                st.image(img, use_column_width=True)
-                st.caption(f"{t[:30]}...")
 
-# --- TAB 3: IMPORT & INSPIRATION (Clipboard) ---
-with tab_import:
-    st.markdown("### 📋 Bild aus Zwischenablage einfügen")
-    st.info("Kopiere ein Bild (Rechtsklick -> Kopieren) und drücke den Button unten.")
+    b_cols = st.columns(3)
+    bgs = st.session_state.bg_list
     
-    paste_result = pbutton(label="📋 BILD EINFÜGEN", background_color="#FF4B4B")
+    for i, txt in enumerate(st.session_state.batch_texts):
+        bg = bgs[i % len(bgs)] if bgs else None
+        thumb = ig.render(st.session_state.sel_cat, txt, bg, scale=0.8, shadow=True)
+        with b_cols[i % 3]:
+            st.image(thumb, use_column_width=True)
     
-    if paste_result.image_data is not None:
-        st.success("Bild empfangen!")
-        st.image(paste_result.image_data, caption="Inspiration aus Clipboard", width=300)
-        
-        st.text_area("✍️ Spruch hier abtippen / umformulieren:", height=100)
-        st.button("Diesen Text für Post verwenden (Coming Soon)")
-    else:
-        st.write("Noch kein Bild eingefügt.")
+    st.markdown("---")
+    zip_data = ig.create_batch_zip(st.session_state.sel_cat, st.session_state.batch_texts, bgs)
+    st.download_button("📦 ALLE ALS ZIP LADEN", data=zip_data, file_name="Batch.zip", mime="application/zip", type="primary", use_container_width=True)
+
+# === CLIPBOARD ===
+with tab_clip:
+    st.info("Kopiere ein Bild und klicke unten.")
+    res = pbutton("📋 BILD EINFÜGEN")
+    if res.image_data:
+        st.image(res.image_data, width=300)
+        st.text_area("Abschreiben:", height=100)

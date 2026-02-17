@@ -2,312 +2,217 @@ import random
 import time
 import json
 import re
+import zipfile
+import io
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance, ImageOps
 
-# ---------- Hilfsfunktionen ----------
-
-def sanitize_filename(name: str) -> str:
-    return re.sub(r'[\\/*?:"<>|]', "", name)
-
-def get_readable_name(filename: str) -> str:
-    """Macht aus 'zieh_ab_arschloch.txt' -> 'Zieh Ab Arschloch'."""
-    stem = Path(filename).stem
-    readable = stem.replace("_", " ").replace("-", " ")
-    return readable.title()
-
-def load_json(path: Path, default):
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-def save_json(path: Path, data):
-    try:
-        with path.open("w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
-    except Exception:
-        pass
-
-# ---------- Daten-Manager ----------
-
+# --- DYNAMIC DATA MANAGER ---
 class WebDataManager:
     def __init__(self):
         self.base_dir = Path(__file__).parent / "data_content_creator"
         self.base_dir.mkdir(exist_ok=True)
-        self.final_image_dir = Path(__file__).parent / "generated_posts"
-        self.final_image_dir.mkdir(exist_ok=True)
-
         self.used_texts_file = self.base_dir / "used_texts_web.json"
-        self.used_texts: Dict[str, float] = load_json(self.used_texts_file, {})
-        self.lock_duration_minutes = 10
-
-        # Scannt ALLE .txt Dateien, egal wie sie heißen
-        self.txt_files = sorted(self.base_dir.glob("*.txt"))
-        self.categories: Dict[str, Path] = {}
         
-        for f in self.txt_files:
-            # Kategorie-Name wird hübsch gemacht
-            cat_name = get_readable_name(f.name)
-            self.categories[cat_name] = f
-
-        # Fallback, falls leer
-        if not self.categories:
-            dummy = self.base_dir / "Demo_Kategorie.txt"
-            if not dummy.exists():
-                with dummy.open("w", encoding="utf-8") as f:
-                    f.write("Dies ist ein Beispieltext.\nFüge deine .txt Dateien hinzu.\n")
-            self.categories["Demo Kategorie"] = dummy
-
-    def get_categories(self) -> List[str]:
-        return sorted(list(self.categories.keys()))
-
-    def get_file_for_category(self, category: str) -> Path:
-        return self.categories.get(category, self.base_dir / "Demo_Kategorie.txt")
-
-    def load_texts(self, category: str) -> List[str]:
-        path = self.get_file_for_category(category)
-        if not path.exists(): return []
         try:
-            with path.open("r", encoding="utf-8", errors="ignore") as f:
-                lines = f.readlines()
-        except: return []
-        
-        # Nur nicht-leere Zeilen, Duplikate entfernen
-        return list(dict.fromkeys([l.strip() for l in lines if l.strip()]))
+            with self.used_texts_file.open("r", encoding="utf-8") as f:
+                self.used_texts = json.load(f)
+        except: self.used_texts = {}
 
-    def get_next_text(self, category: str) -> str:
-        # Rotation bereinigen
+        self.categories = {}
+        # Scan for txt files
+        for f in sorted(self.base_dir.glob("*.txt")):
+            clean_name = f.stem.replace("_", " ").title()
+            self.categories[clean_name] = f
+
+        # Fallback if empty
+        if not self.categories:
+            dummy = self.base_dir / "Demo.txt"
+            if not dummy.exists():
+                with dummy.open("w") as f: f.write("Beispieltext.")
+            self.categories["Demo"] = dummy
+
+    def get_categories(self): return sorted(list(self.categories.keys()))
+
+    def get_next_text(self, category):
+        fpath = self.categories.get(category)
+        if not fpath: return "Fehler: Kategorie nicht gefunden"
+        try:
+            with fpath.open("r", encoding="utf-8", errors="ignore") as f:
+                lines = [l.strip() for l in f if l.strip()]
+        except: return "Fehler beim Lesen"
+        if not lines: return "Datei ist leer"
+
+        # Rotation Logic
         now = time.time()
-        lock = self.lock_duration_minutes * 60
-        self.used_texts = {t: ts for t, ts in self.used_texts.items() if (now - ts) < lock}
+        # Clean old locks (15 mins)
+        self.used_texts = {k:v for k,v in self.used_texts.items() if (now-v) < 900}
         
-        texts = self.load_texts(category)
-        if not texts: return "Keine Texte gefunden."
-
-        available = [t for t in texts if t not in self.used_texts]
-        if not available:
-            self.used_texts = {} # Reset wenn alle durch
-            available = texts
-            
-        chosen = random.choice(available)
-        self.used_texts[chosen] = time.time()
-        save_json(self.used_texts_file, self.used_texts)
+        avail = [t for t in lines if t not in self.used_texts]
+        if not avail: 
+            avail = lines # Reset if all used
+            self.used_texts = {}
+        
+        chosen = random.choice(avail)
+        self.used_texts[chosen] = now
+        try:
+            with self.used_texts_file.open("w", encoding="utf-8") as f: 
+                json.dump(self.used_texts, f)
+        except: pass
+        
         return chosen
 
-    def list_backgrounds(self, category: str) -> List[Path]:
-        # Intelligente Suche nach dem Ordner
-        txt_stem = self.get_file_for_category(category).stem.lower() # z.B. "motivation"
-        cat_clean = category.lower().replace(" ", "_")
-
-        found_dir = None
-        # 1. Exakter Match auf Stem (motivation_backgrounds)
+    # THIS IS THE FIXED METHOD
+    def get_backgrounds(self, category):
+        if category not in self.categories: return []
+        
+        # Try to find folder matching the text file name
+        stem = self.categories[category].stem.lower() # e.g. "narzissmus"
+        
+        found = None
+        # 1. Look for folder containing stem AND "background"
         for d in self.base_dir.iterdir():
-            if not d.is_dir(): continue
-            d_lower = d.name.lower()
-            if f"{txt_stem}_backgrounds" in d_lower: found_dir = d; break
-            if f"{cat_clean}_backgrounds" in d_lower: found_dir = d; break
-            # 2. Fuzzy Match: Wenn "motivation" und "background" drin vorkommt
-            if txt_stem in d_lower and "background" in d_lower: found_dir = d; break
-
-        if not found_dir: return []
+            if d.is_dir():
+                d_name = d.name.lower()
+                if stem in d_name and "background" in d_name:
+                    found = d
+                    break
         
-        files = []
-        for ext in ("*.jpg", "*.jpeg", "*.png", "*.webp"):
-            files.extend(sorted(found_dir.glob(ext)))
-            files.extend(sorted(found_dir.glob(ext.upper())))
-        return files
+        if not found: return []
+        
+        # Return all images in that folder
+        exts = {".jpg", ".jpeg", ".png", ".webp"}
+        return sorted([f for f in found.glob("*") if f.suffix.lower() in exts])
 
-# ---------- Bildgenerator (Pro-Version) ----------
 
+# --- PRO IMAGE GENERATOR ---
 class ImageGenerator:
-    def __init__(self, data_manager: WebDataManager):
-        self.dm = data_manager
-        self.image_size = (1080, 1350)
+    def __init__(self, dm):
+        self.dm = dm
 
-    def get_font(self, font_name: str, size: int):
-        if not font_name: font_name = "Helvetica"
-        # Suche in lokalen Fonts
-        fonts_dir = self.dm.base_dir / "fonts"
-        candidates = [
-            fonts_dir / font_name,
-            fonts_dir / f"{font_name}.ttf",
-            fonts_dir / f"{font_name}.otf",
-            Path("/Library/Fonts") / f"{font_name}.ttf",
-            Path("/System/Library/Fonts") / f"{font_name}.ttc"
-        ]
-        for p in candidates:
-            if p.exists():
-                try: return ImageFont.truetype(str(p), size=size)
-                except: continue
-        try: return ImageFont.truetype(font_name, size=size)
-        except: return ImageFont.load_default()
+    def get_font(self, size):
+        cands = ["Helvetica-Bold", "Arial Bold", "/System/Library/Fonts/Helvetica.ttc", "/Library/Fonts/Arial Bold.ttf"]
+        for c in cands:
+            try: return ImageFont.truetype(c, size)
+            except: continue
+        return ImageFont.load_default()
 
-    def create_image(self, category: str, text: str, bg_image: Optional[Image.Image], 
-                     scale=1.0, pos_x=0.5, pos_y=0.5, 
-                     stroke=0.0, blur=0.0, shadow=True, bw=False, vignette=False, 
-                     custom_color=None, bg_color="#000000"):
+    def render(self, category, text, bg_path=None, scale=1.0, pos_y=0.5, pos_x=0.5, 
+               shadow=True, bw=False, blur=0, vignette=False, custom_col=None,
+               draw_overlay=False): 
         
-        # 1. Format bestimmen
-        cat_lower = category.lower()
-        # Quadratisch für diese speziellen Kategorien
-        if any(x in cat_lower for x in ["krasser", "miststück", "zieh ab", "arschloch"]):
-            self.image_size = (960, 960)
-        else:
-            self.image_size = (1080, 1350)
-            
-        W, H = self.image_size
+        is_square = any(x in category.lower() for x in ["krasser", "miststück", "zieh ab"])
+        W, H = (960, 960) if is_square else (1080, 1350)
+        
+        # Background
+        if bg_path:
+            try:
+                img = Image.open(bg_path).convert("RGB")
+                r_img, r_can = img.width/img.height, W/H
+                if r_img > r_can: nh, nw = H, int(H*r_img)
+                else: nw, nh = W, int(W/r_img)
+                img = img.resize((nw, nh), Image.Resampling.LANCZOS)
+                l, t = (nw-W)//2, (nh-H)//2
+                img = img.crop((l, t, l+W, t+H))
+            except: img = Image.new("RGB", (W,H), "#111")
+        else: img = Image.new("RGB", (W,H), "#111")
 
-        # 2. Hintergrund
-        if bg_image:
-            # Smart Crop (Center)
-            img = bg_image.copy()
-            img_ratio = img.width / img.height
-            target_ratio = W / H
-            if img_ratio > target_ratio:
-                new_h = H
-                new_w = int(new_h * img_ratio)
-            else:
-                new_w = W
-                new_h = int(new_w / img_ratio)
-            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
-            left = (new_w - W)/2
-            top = (new_h - H)/2
-            img = img.crop((left, top, left+W, top+H))
-        else:
-            img = Image.new("RGB", (W, H), bg_color)
-
-        # 3. Effekte
+        # Filters
         if bw: img = ImageOps.grayscale(img).convert("RGB")
-        if blur > 0: img = img.filter(ImageFilter.GaussianBlur(radius=blur))
+        if blur > 0: img = img.filter(ImageFilter.GaussianBlur(blur))
         if vignette:
-            overlay = Image.new("RGBA", (W, H), (0,0,0,0))
-            d = ImageDraw.Draw(overlay)
-            d.rectangle([(0,0), (W,H)], fill=(0,0,0,90)) # Leichte Abdunklung
-            img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+            ov = Image.new("RGBA", (W,H), (0,0,0,0))
+            d = ImageDraw.Draw(ov)
+            d.rectangle([0,0,W,H], fill=(0,0,0,80))
+            img = Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
         draw = ImageDraw.Draw(img)
-
-        # 4. Farben & Fonts
-        if custom_color: text_col = custom_color
+        
+        # Colors
+        if custom_col: fill = custom_col
         else:
-            # Auto-Color
-            thumb = img.resize((1,1))
-            c = thumb.getpixel((0,0))
-            bright = (c[0]*299 + c[1]*587 + c[2]*114)/1000
-            text_col = "#FFFFFF" if bright < 120 else "#000000"
+            s = ImageOps.grayscale(img.resize((1,1))).getpixel((0,0))
+            fill = "#FFFFFF" if s < 130 else "#000000"
         
-        stroke_col = "#000000" if text_col == "#FFFFFF" else "#FFFFFF"
-        
-        # --- SCHRIFTGRÖSSE BOOSTEN ---
-        # Standard war 60/80 -> Jetzt 110/140 für bessere Lesbarkeit
-        base_s = 130 if W == 960 else 110 
-        font = self.get_font("Helvetica", int(base_s * scale))
+        base_s = 120 if is_square else 105
+        font = self.get_font(int(base_s * scale))
+        if is_square: text = text.upper()
 
-        if W == 960: text = text.upper()
-
-        # 5. Text-Wrapping & Layout
-        # Margin: 1.5cm bei 300dpi sind ca 170px. Wir nehmen 120px für Web.
-        margin = 120 
-        max_w = W - (2 * margin)
+        # Layout
+        mx = 140
+        top_s, bot_s = int(H*0.25), H-120
+        max_w = W - 2*mx
         
         lines = []
-        for line in text.split('\n'):
-            words = line.split()
-            curr = ""
+        for par in text.split('\n'):
+            words, cur = par.split(), ""
             for w in words:
-                test = f"{curr} {w}".strip()
-                bbox = draw.textbbox((0,0), test, font=font)
-                if (bbox[2]-bbox[0]) <= max_w: curr = test
-                else:
-                    if curr: lines.append(curr)
-                    curr = w
-            if curr: lines.append(curr)
+                test = (cur + " " + w).strip()
+                if draw.textbbox((0,0), test, font=font)[2] <= max_w: cur = test
+                else: 
+                    if cur: lines.append(cur)
+                    cur = w
+            if cur: lines.append(cur)
 
-        # Höhe berechnen
-        line_heights = []
-        for l in lines:
-            bb = draw.textbbox((0,0), l, font=font)
-            line_heights.append(bb[3]-bb[1])
+        line_h = [draw.textbbox((0,0), l, font=font)[3] for l in lines]
+        space = 20
+        tot_h = sum(line_h) + (len(lines)-1)*space
         
-        spacing = 15
-        total_h = sum(line_heights) + (len(lines)-1)*spacing
-        
-        # Vertikale Positionierung (Safe Zones)
-        top_safe = int(H * 0.25) # Obere 25% heilig
-        bottom_safe = int(H * 0.90)
-        
-        # Verfügbarer Raum
-        avail_h = bottom_safe - top_safe
-        
-        # Zentrierung erzwingen? -> pos_y=0.5 ist exakte Mitte des Safe-Bereichs
-        # Wir mappen pos_y (0.0 - 1.0) auf (top_safe ... bottom_safe - total_h)
-        min_y = top_safe
-        max_y = bottom_safe - total_h
-        if max_y < min_y: max_y = min_y # Text zu lang, fängt oben an
-        
+        min_y, max_y = top_s, max(top_s, bot_s - tot_h)
         start_y = min_y + (max_y - min_y) * pos_y
 
-        # Helper zum Zeichnen (ZENTRIERT)
-        def draw_text_lines(painter, fill, s_w=0, s_fill=None):
-            y = start_y
+        def paint(ptr, col, off=0, strk=0, scol=None):
+            y = start_y + off
             for i, l in enumerate(lines):
-                bb = draw.textbbox((0,0), l, font=font)
-                lw = bb[2]-bb[0]
-                lh = line_heights[i]
-                
-                # Horizontale Position:
-                # Verfügbarer Platz: W - (2*margin)
-                # Textbreite: lw
-                # pos_x=0.5 -> Zentriert im verfügbaren Platz
-                
-                # Bereich links/rechts
-                area_l = margin
-                area_w = W - 2*margin
-                
-                # Exakte X-Position basierend auf Slider
-                # x = Startbereich + (Freiraum * pos)
-                freiraum = area_w - lw
-                x = area_l + (freiraum * pos_x)
-                
-                if s_w > 0:
-                    painter.text((x, y), l, font=font, fill=fill, stroke_width=s_w, stroke_fill=s_fill)
-                else:
-                    painter.text((x, y), l, font=font, fill=fill)
-                y += lh + spacing
+                lw = draw.textbbox((0,0), l, font=font)[2]
+                x = mx + ((W - 2*mx - lw) * pos_x)
+                if strk: ptr.text((x, y), l, font, fill=col, stroke_width=strk, stroke_fill=scol)
+                else: ptr.text((x, y), l, font, fill=col)
+                y += line_h[i] + space
 
-        # Schatten
         if shadow:
-            s_layer = Image.new("RGBA", (W,H), (0,0,0,0))
-            s_draw = ImageDraw.Draw(s_layer)
-            s_col = (0,0,0,160) if text_col == "#FFFFFF" else (255,255,255,160)
-            
-            # Schatten leicht versetzt
-            orig_y = start_y
-            start_y += 4 # Offset Y
-            draw_text_lines(s_draw, s_col)
-            start_y = orig_y # Reset
-            
-            s_layer = s_layer.filter(ImageFilter.GaussianBlur(radius=5))
-            img = Image.alpha_composite(img.convert("RGBA"), s_layer).convert("RGB")
+            s_im = Image.new("RGBA", (W,H), (0,0,0,0))
+            paint(ImageDraw.Draw(s_im), (0,0,0,160) if fill=="#FFFFFF" else (255,255,255,160), off=8)
+            img = Image.alpha_composite(img.convert("RGBA"), s_im.filter(ImageFilter.GaussianBlur(5))).convert("RGB")
             draw = ImageDraw.Draw(img)
 
-        # Haupttext
-        draw_text_lines(draw, text_col, int(stroke), stroke_col)
+        paint(draw, fill, strk=int(bw), scol="#000" if fill=="#FFF" else "#FFF")
 
-        # Wasserzeichen
+        # Watermark
         wm = None
-        if "narzissmus" in cat_lower: wm = "Isaak Öztürk"
-        elif "herz" in cat_lower or "umfragen" in cat_lower: wm = "Herzwelt"
-        
+        cat_low = category.lower()
+        if "narzissmus" in cat_low: wm = "Isaak Öztürk"
+        elif "herz" in cat_low or "umfragen" in cat_low: wm = "Herzwelt"
         if wm:
-            f_wm = self.get_font("Noteworthy", 45) # Größeres WM
-            bb = draw.textbbox((0,0), wm, font=f_wm)
-            wx = (W - (bb[2]-bb[0])) / 2
-            wy = H - 100
-            draw.text((wx, wy), wm, font=f_wm, fill=text_col)
+            try: fwm = ImageFont.truetype("Noteworthy.ttc", 45)
+            except: fwm = ImageFont.load_default()
+            wbb = draw.textbbox((0,0), wm, font=fwm)
+            draw.text(((W-(wbb[2]-wbb[0]))/2, H-90), wm, font=fwm, fill=fill)
+
+        # Overlay Mockup
+        if draw_overlay:
+            ov = Image.new("RGBA", (W,H), (0,0,0,0))
+            d = ImageDraw.Draw(ov)
+            ui_col = (255,255,255,200)
+            d.text((40, 60), "< Zurück", font=self.get_font(40), fill=ui_col)
+            rx, ry = W-100, H-400
+            for i in range(3):
+                d.ellipse([rx, ry, rx+70, ry+70], outline=ui_col, width=4)
+                ry += 160
+            img = Image.alpha_composite(img.convert("RGBA"), ov).convert("RGB")
 
         return img
+
+    def create_batch_zip(self, category, texts, bg_list):
+        mem_zip = io.BytesIO()
+        with zipfile.ZipFile(mem_zip, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for i, txt in enumerate(texts):
+                bg = bg_list[i % len(bg_list)] if bg_list else None
+                img = self.render(category, txt, bg, scale=1.0, shadow=True)
+                img_byte = io.BytesIO()
+                img.save(img_byte, format="PNG")
+                safe_txt = re.sub(r'\W+', '_', txt[:20])
+                zf.writestr(f"Post_{i+1}_{safe_txt}.png", img_byte.getvalue())
+        return mem_zip.getvalue()
