@@ -1,279 +1,145 @@
 import io
 import time
-from pathlib import Path
-
 import streamlit as st
 from PIL import Image
-
 from core import WebDataManager, ImageGenerator
 
+st.set_page_config(page_title="Content Creator Pro", layout="wide", page_icon="🎨")
 
-# ---------- Grundlayout maximal kompakt ----------
+# CSS für kompakten Look & Loading-Spinner weg
+st.markdown("""
+<style>
+    .block-container { padding-top: 1rem; padding-bottom: 2rem; }
+    div[data-testid="stVerticalBlock"] > div { gap: 0.5rem; }
+    /* Radio Buttons größer und hübscher */
+    div.row-widget.stRadio > div { flex-direction: row; gap: 10px; overflow-x: auto; }
+</style>
+""", unsafe_allow_html=True)
 
-st.set_page_config(
-    page_title="Content Creator Pro",
-    layout="wide",
-    page_icon="🎨",
-)
+# 1. Init
+if 'dm' not in st.session_state:
+    st.session_state.dm = WebDataManager()
+    st.session_state.ig = ImageGenerator(st.session_state.dm)
 
-# Weniger Padding & White-Space im Hauptbereich
-st.markdown(
-    """
-    <style>
-    .block-container {
-        padding-top: 0.2rem;
-        padding-bottom: 0.2rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
-    }
-    .stVerticalBlock { gap: 0.3rem !important; }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+dm = st.session_state.dm
+ig = st.session_state.ig
 
-dm = WebDataManager()
-ig = ImageGenerator(dm)
-
-categories = dm.get_categories()
-if not categories:
-    st.error("Keine Kategorien gefunden. Prüfe `data_content_creator` im Projektordner.")
-    st.stop()
-
-
-# ---------- Kopfzeile & Kategorie (oben, kompakt) ----------
-
-head_left, head_right = st.columns([2, 3])
-
-with head_left:
-    st.markdown("#### 🎨 Content Creator Pro – Web")
-    st.caption("Kategorien, Texte, Hintergründe & Rotation (Web-Version)")
-
-with head_right:
-    category = st.radio(
-        "Kategorie wählen",
-        categories,
-        horizontal=True,
-        label_visibility="collapsed",
-    )
-
-# Aktuelle Kategorie im Preview-Bereich deutlich anzeigen
-st.markdown(
-    f"<div style='text-align:right; font-size:0.9rem; color:#888;'>Aktuelle Kategorie: "
-    f"<span style='font-weight:600; color:#fff;'>{category}</span></div>",
-    unsafe_allow_html=True,
-)
-
-
-# ---------- Sidebar: Daten & Hintergründe ----------
-
-with st.sidebar:
-    st.markdown("#### 📂 Daten & Hintergründe")
-
-    font_name = st.text_input("Schriftart", value="Helvetica")
-
-    bgs = dm.list_backgrounds(category)
-    use_bg = st.checkbox("BG nutzen", value=bool(bgs))
-    bg_file = None
-
-    if use_bg and bgs:
-        idx = st.number_input(
-            "BG-Index",
-            min_value=1,
-            max_value=len(bgs),
-            value=1,
-            step=1,
-        )
-        bg_file = bgs[idx - 1]
-        st.image(str(bg_file), caption=f"{idx}/{len(bgs)}", use_column_width=True)
-    elif use_bg and not bgs:
-        st.warning("Keine Hintergründe gefunden.")
-
-    st.markdown("---")
-    st.caption("Textdateien in `data_content_creator`:")
-    for p in sorted(dm.base_dir.glob("*.txt")):
-        st.text(f"• {p.name}")
-
-
-# ---------- Hauptbereich: 3 Spalten, alles sichtbar ----------
-
-col_text, col_look, col_prev = st.columns([1.1, 0.9, 1.5])
-
-
-# ===== Spalte 1: Text & einfache Batch-Auswahl =====
-
-with col_text:
-    st.markdown("##### Text")
-
-    use_auto_text = st.checkbox(
-        "Auto-Text (Rotation)",
-        value=True,
-        help="Nimmt automatisch den nächsten Spruch aus der .txt-Datei der Kategorie.",
-    )
-
-    if use_auto_text and st.button("🔄 Nächsten Text", use_container_width=True):
-        txt = dm.get_next_text(category)
-        if txt:
-            st.session_state["body_text"] = txt
-        else:
-            st.warning("Keine Texte für diese Kategorie gefunden.")
-
-    default_text = st.session_state.get("body_text", "")
-
-    headline = st.text_input("Headline", value="", label_visibility="visible")
-    body_text = st.text_area(
-        "Haupttext",
-        height=110,
-        value=default_text,
-    )
-
-    st.markdown("---")
-    st.markdown("##### Batch")
-
-    batch_count = st.slider("Anzahl Posts", 1, 8, 4, 1)
-    auto_batch_preview = st.checkbox("Batch-Vorschau direkt unter Bild anzeigen", value=False)
-
-
-# ===== Spalte 2: Look & Feel =====
-
-with col_look:
-    st.markdown("##### Look & Position")
-
-    text_scale = st.slider("Größe", 0.5, 2.5, 1.0, 0.1)
-    pos_y = st.slider("Vertikal", 0.0, 1.0, 0.5, 0.05)
-    pos_x = st.slider("Horizontal", 0.0, 1.0, 0.5, 0.05)
-
-    stroke = st.slider("Rand", 0.0, 5.0, 0.0, 0.1)
-    blur = st.slider("BG-Blur", 0.0, 20.0, 0.0, 0.5)
-
-    st.markdown("---")
-    st.markdown("##### Farben & Effekte")
-
-    col_fx1, col_fx2 = st.columns(2)
-
-    with col_fx1:
-        bg_color = st.color_picker("BG-Farbe", "#000000")
-        use_bw = st.checkbox("B&W", value=False)
-
-    with col_fx2:
-        use_shadow = st.checkbox("Schatten", value=True)
-        use_vignette = st.checkbox("Vignette", value=False)
-        use_custom_color = st.checkbox("Eigene Textfarbe", value=False)
-
-    custom_color = None
-    if use_custom_color:
-        custom_color = st.color_picker("Text", "#FFFFFF")
-
-    st.markdown("---")
-    manual_render = st.checkbox("Nur auf Klick rendern", value=False)
-    if manual_render:
-        render_click = st.button("🎨 Bild aktualisieren", use_container_width=True)
+# 2. Callbacks (Das Geheimnis für "Sofort")
+def update_category():
+    # Wird ausgeführt, sobald Kategorie gewechselt wird
+    cat = st.session_state.selected_category
+    # Sofort neuen Text laden
+    st.session_state.body_text = dm.get_next_text(cat)
+    # Sofort neuen Hintergrund laden (zufällig)
+    bgs = dm.list_backgrounds(cat)
+    if bgs:
+        st.session_state.bg_index = 0 # oder random.randint(0, len(bgs)-1)
     else:
-        render_click = True  # immer automatisch
+        st.session_state.bg_index = 0
 
+def next_text_callback():
+    cat = st.session_state.selected_category
+    st.session_state.body_text = dm.get_next_text(cat)
 
-# ===== Spalte 3: Vorschau & Batch-Ausgabe =====
+# 3. Layout: Kopfbereich
+cols = st.columns([1, 4])
+with cols[0]:
+    st.markdown("### 🎨 CC Pro")
+with cols[1]:
+    cats = dm.get_categories()
+    if not cats: st.error("Keine Kategorien! Bitte Daten pushen.")
+    
+    # Radio mit Callback
+    st.radio("Kategorie", cats, key="selected_category", horizontal=True, 
+             on_change=update_category, label_visibility="collapsed")
 
-with col_prev:
-    st.markdown("##### Vorschau")
+if "body_text" not in st.session_state:
+    update_category() # Initial load
 
-    img_single = None
+# Aktuelle Daten holen
+category = st.session_state.selected_category
+bgs = dm.list_backgrounds(category)
 
-    # Sofort-Vorschau: immer rendern, wenn Einstellungen/Text sich ändern
-    if render_click:
-        bg_image = None
-        if bg_file is not None:
-            try:
-                bg_image = Image.open(bg_file).convert("RGB")
-            except Exception:
-                bg_image = None
+# 4. Hauptbereich (3 Spalten)
+c1, c2, c3 = st.columns([1.2, 0.8, 1.5])
 
-        if not body_text.strip():
-            st.info("Haupttext eingeben oder Auto-Text laden.")
-        else:
-            img_single = ig.create_image(
-                category=category,
-                headline=headline,
-                body=body_text,
-                background_image=bg_image,
-                font_name=font_name.strip() or None,
-                scale=text_scale,
-                pos_x=pos_x,
-                pos_y=pos_y,
-                stroke=stroke,
-                blur=blur,
-                use_shadow=use_shadow,
-                use_bw=use_bw,
-                use_vignette=use_vignette,
-                custom_color=custom_color,
-                bg_color=bg_color,
-            )
-            st.session_state["last_image"] = img_single
+# --- SPALTE 1: INHALT ---
+with c1:
+    st.markdown("#### 📝 Inhalt")
+    # Textfeld
+    txt = st.text_area("Text", value=st.session_state.body_text, height=150, key="input_text")
+    # Button für neuen Text
+    st.button("🎲 Neuer Text (Rotation)", on_click=next_text_callback, use_container_width=True)
+    
+    st.markdown("#### 🖼 Hintergrund")
+    if bgs:
+        # Slider statt Number Input -> schneller
+        bg_idx = st.slider("Bild auswählen", 0, len(bgs)-1, key="bg_index", label_visibility="collapsed")
+        st.caption(f"Datei: {bgs[bg_idx].name}")
+    else:
+        st.warning("Keine Bilder für diese Kategorie gefunden.")
+        bg_idx = 0
 
-    if "last_image" in st.session_state:
-        img_single = st.session_state["last_image"]
+# --- SPALTE 2: LOOK ---
+with c2:
+    st.markdown("#### 🎛 Design")
+    scale = st.slider("Schriftgröße", 0.5, 2.0, 1.0, 0.1)
+    # Standard 0.5 = Perfekte Mitte
+    pos_y = st.slider("Pos Oben/Unten", 0.0, 1.0, 0.5, 0.05)
+    pos_x = st.slider("Pos Links/Rechts", 0.0, 1.0, 0.5, 0.05)
+    
+    st.markdown("---")
+    c2a, c2b = st.columns(2)
+    with c2a:
+        shadow = st.checkbox("Schatten", True)
+        bw = st.checkbox("B&W", False)
+    with c2b:
+        vignette = st.checkbox("Vignette", False)
+        blur = st.checkbox("Blur", False)
+        
+    blur_val = 5.0 if blur else 0.0
+    
+    col_pick = st.color_picker("Textfarbe (Auto = Leer)", "")
+    custom_col = col_pick if col_pick else None
 
-    if img_single is not None:
-        st.image(img_single, use_column_width=True)
+# --- SPALTE 3: PREVIEW ---
+with c3:
+    st.markdown(f"#### 👁️ {category}")
+    
+    # Rendern
+    # Hintergrund laden
+    bg_img = None
+    if bgs:
+        try: bg_img = Image.open(bgs[bg_idx]).convert("RGB")
+        except: pass
+    
+    # Das eigentliche Generieren
+    final_img = ig.create_image(
+        category=category,
+        text=txt,
+        bg_image=bg_img,
+        scale=scale,
+        pos_x=pos_x,
+        pos_y=pos_y,
+        stroke=0,
+        blur=blur_val,
+        shadow=shadow,
+        bw=bw,
+        vignette=vignette,
+        custom_color=custom_col
+    )
+    
+    # Anzeigen
+    st.image(final_img, use_column_width=True)
+    
+    # Download
+    buf = io.BytesIO()
+    final_img.save(buf, format="PNG")
+    st.download_button("⬇️ Bild speichern", data=buf.getvalue(), 
+                       file_name=f"{category}_{int(time.time())}.png", 
+                       mime="image/png", type="primary", use_container_width=True)
 
-        buf = io.BytesIO()
-        img_single.save(buf, format="PNG")
-        st.download_button(
-            "💾 Download",
-            data=buf.getvalue(),
-            file_name=f"post_{category}_{int(time.time())}.png",
-            mime="image/png",
-            use_container_width=True,
-        )
-
-    # Optionale Batch-Vorschau direkt unter dem Einzel-Bild
-    if auto_batch_preview and body_text.strip():
-        st.markdown("---")
-        st.markdown("##### Batch-Vorschau")
-
-        texts = []
-        for _ in range(batch_count):
-            t = dm.get_next_text(category)
-            if t:
-                texts.append(t)
-
-        if not texts:
-            st.warning("Keine Texte für Batch gefunden.")
-        else:
-            cols = st.columns(2)
-            for i, txt in enumerate(texts):
-                col = cols[i % 2]
-
-                bg_for_post = None
-                if use_bg and bgs:
-                    try:
-                        bg_for_post = Image.open(bgs[i % len(bgs)]).convert("RGB")
-                    except Exception:
-                        bg_for_post = None
-                elif bg_file is not None:
-                    try:
-                        bg_for_post = Image.open(bg_file).convert("RGB")
-                    except Exception:
-                        bg_for_post = None
-
-                img = ig.create_image(
-                    category=category,
-                    headline="",
-                    body=txt,
-                    background_image=bg_for_post,
-                    font_name=font_name.strip() or None,
-                    scale=text_scale,
-                    pos_x=pos_x,
-                    pos_y=pos_y,
-                    stroke=stroke,
-                    blur=blur,
-                    use_shadow=use_shadow,
-                    use_bw=use_bw,
-                    use_vignette=use_vignette,
-                    custom_color=custom_color,
-                    bg_color=bg_color,
-                )
-
-                with col:
-                    st.image(img, use_column_width=True, caption=f"#{i+1}")
-                    st.write(txt)
+# Debug Info in Sidebar (damit Main sauber bleibt)
+with st.sidebar:
+    st.info(f"Geladene Texte: {len(dm.load_texts(category))}")
+    st.info(f"Geladene Bilder: {len(bgs)}")
