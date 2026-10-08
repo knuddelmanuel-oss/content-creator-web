@@ -34,13 +34,25 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "WG_OIDC_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
+      - name: Run cloud scheduler
+        shell: bash
+        env:
+          WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
+        run: |
+          OUT="$RUNNER_TEMP/wortgefuehl-scheduler.json"
+          CODE=$(curl -sS --max-time 240 -o "$OUT" -w "%{http_code}" -X POST             -H "Authorization: Bearer $WG_OIDC_TOKEN"             "$WG_CLOUD_BASE/api/scheduler/run")
+          cat "$OUT" || true
+          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
+            echo "::error title=Wortgefühl Scheduler Fehler::HTTP $CODE"
+            exit 1
+          fi
+
       - name: Check for pending render job
         id: preflight
         shell: bash
         env:
           WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
         run: |
-          sleep 20
           JOB_FILE="$RUNNER_TEMP/wortgefuehl-job.json"
           CODE=$(curl -sS -o "$JOB_FILE" -w "%{http_code}" -X POST             -H "Authorization: Bearer $WG_OIDC_TOKEN"             "$WG_CLOUD_BASE/api/render/claim")
           if [ "$CODE" = "204" ]; then
