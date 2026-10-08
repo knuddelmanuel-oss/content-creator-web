@@ -2,6 +2,12 @@ name: Wortgefuehl Cloud Render
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/wortgefuehl-render.yml"
+      - "scripts/wortgefuehl_render.py"
+      - "scripts/test_wortgefuehl_render.py"
   schedule:
     # Europe/Berlin hat Sommer und Winterzeit. Beide UTC Kandidaten werden geprüft.
     # Der Preflight beendet die fünf falschen Kandidaten nach wenigen Sekunden.
