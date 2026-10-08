@@ -32,11 +32,17 @@ def run(args):
     subprocess.run([str(x) for x in args], check=True)
 
 def probe_duration(path):
-    raw = subprocess.check_output([
-        "ffprobe", "-v", "error", "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1", str(path)
-    ], text=True).strip()
-    return max(0.0, float(raw or 0))
+    proc = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-i", str(path)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", proc.stderr or "")
+    if not match:
+        raise RuntimeError("Videodauer konnte mit ffmpeg nicht ermittelt werden.")
+    h, m, s = match.groups()
+    return max(0.0, int(h) * 3600 + int(m) * 60 + float(s))
 
 def next_job():
     response = call("/api/render/claim", method="POST", body=b"")
