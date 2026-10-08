@@ -7,6 +7,7 @@ on:
     paths:
       - ".github/workflows/wortgefuehl-render.yml"
       - "scripts/wortgefuehl_render.py"
+      - "scripts/test_wortgefuehl_render.py"
   schedule:
     # Europe/Berlin hat Sommer und Winterzeit. Beide UTC Kandidaten werden geprüft.
     # Der Preflight beendet die fünf falschen Kandidaten nach wenigen Sekunden.
@@ -55,6 +56,10 @@ jobs:
 
       - uses: actions/checkout@v5
         if: steps.preflight.outputs.has_job == 'true'
+
+      - name: Test subtitle formats
+        if: steps.preflight.outputs.has_job == 'true'
+        run: python -W error scripts/test_wortgefuehl_render.py
 
       - name: Setup FFmpeg
         if: steps.preflight.outputs.has_job == 'true'
