@@ -138,7 +138,7 @@ def create_tts(payload, work):
     voice_vtt = work / "voice.vtt"
 
     run([
-        "edge-tts", "--voice", voice, "--rate", rate,
+        "edge-tts", "--voice", voice, "--rate=" + rate,
         "--text", script, "--write-media", voice_mp3,
         "--write-subtitles", voice_vtt
     ])
@@ -148,7 +148,7 @@ def create_tts(payload, work):
         slower = "-15%"
         print(f"Voice too short ({dur:.1f}s). Re-render at {slower}.", flush=True)
         run([
-            "edge-tts", "--voice", voice, "--rate", slower,
+            "edge-tts", "--voice", voice, "--rate=" + slower,
             "--text", script, "--write-media", voice_mp3,
             "--write-subtitles", voice_vtt
         ])

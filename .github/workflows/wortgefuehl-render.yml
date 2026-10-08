@@ -65,4 +65,12 @@ jobs:
         if: steps.preflight.outputs.has_job == 'true'
         env:
           WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
-        run: python scripts/wortgefuehl_render.py
+        shell: bash
+        run: |
+          set +e
+          python scripts/wortgefuehl_render.py 2>&1 | tee "$RUNNER_TEMP/wortgefuehl-render.log"
+          CODE=${PIPESTATUS[0]}
+          if [ "$CODE" -ne 0 ]; then
+            echo "::error title=Wortgefühl Renderer Fehler::$(tail -n 12 "$RUNNER_TEMP/wortgefuehl-render.log" | tr '\n' ' ' | sed 's/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
+            exit "$CODE"
+          fi
