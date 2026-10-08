@@ -176,7 +176,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 
 def create_tts(payload, work):
     script = str(payload.get("script") or "").strip()
-    voice = str(payload.get("voice") or "de-DE-KatjaNeural").strip()
+    voice = str(payload.get("voice") or "de-DE-FlorianMultilingualNeural").strip()
     rate = str(payload.get("voice_rate") or "-5%").strip()
     voice_mp3 = work / "voice.mp3"
     voice_vtt = work / "voice.vtt"
