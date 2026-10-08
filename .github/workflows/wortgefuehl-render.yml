@@ -1,0 +1,68 @@
+name: Wortgefuehl Cloud Render
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/wortgefuehl-render.yml"
+      - "scripts/wortgefuehl_render.py"
+  schedule:
+    # Europe/Berlin hat Sommer und Winterzeit. Beide UTC Kandidaten werden geprüft.
+    # Der Preflight beendet die fünf falschen Kandidaten nach wenigen Sekunden.
+    - cron: "45 6,7,9,10,12,13,15,16,18,19 * * *"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: wortgefuehl-cloud-render
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Request GitHub OIDC token
+        shell: bash
+        run: |
+          RESPONSE=$(curl -fsS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN"             "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=wortgefuehl-autopilot")
+          TOKEN=$(python -c 'import json,sys; print(json.load(sys.stdin)["value"])' <<< "$RESPONSE")
+          echo "::add-mask::$TOKEN"
+          echo "WG_OIDC_TOKEN=$TOKEN" >> "$GITHUB_ENV"
+
+      - name: Check for pending render job
+        id: preflight
+        shell: bash
+        env:
+          WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
+        run: |
+          JOB_FILE="$RUNNER_TEMP/wortgefuehl-job.json"
+          CODE=$(curl -sS -o "$JOB_FILE" -w "%{http_code}" -X POST             -H "Authorization: Bearer $WG_OIDC_TOKEN"             "$WG_CLOUD_BASE/api/render/claim")
+          if [ "$CODE" = "204" ]; then
+            echo "has_job=false" >> "$GITHUB_OUTPUT"
+            echo "No render job pending."
+          elif [ "$CODE" = "200" ]; then
+            echo "has_job=true" >> "$GITHUB_OUTPUT"
+            echo "WG_JOB_FILE=$JOB_FILE" >> "$GITHUB_ENV"
+          else
+            cat "$JOB_FILE" || true
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.preflight.outputs.has_job == 'true'
+
+      - name: Install renderer
+        if: steps.preflight.outputs.has_job == 'true'
+        run: |
+          python -m pip install --disable-pip-version-check --quiet edge-tts
+          ffmpeg -version | head -n 1
+
+      - name: Render pending Wortgefuehl jobs
+        if: steps.preflight.outputs.has_job == 'true'
+        env:
+          WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
+        run: python scripts/wortgefuehl_render.py
