@@ -89,3 +89,5 @@ jobs:
         env:
           WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
         run: python scripts/wortgefuehl_render.py --release-initial-job
+
+# Manual recovery trigger for 2026-10-08 21:00
