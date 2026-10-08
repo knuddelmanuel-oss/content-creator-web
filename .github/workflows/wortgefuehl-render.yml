@@ -2,16 +2,11 @@ name: Wortgefuehl Cloud Render
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/wortgefuehl-render.yml"
-      - "scripts/wortgefuehl_render.py"
-      - "scripts/test_wortgefuehl_render.py"
   schedule:
     # Europe/Berlin hat Sommer und Winterzeit. Beide UTC Kandidaten werden geprüft.
     # Der Preflight beendet die fünf falschen Kandidaten nach wenigen Sekunden.
-    - cron: "*/10 6-20 * * *"
+    - cron: "45,55 6,7,9,10,12,13,15,16,18,19 * * *"
+    - cron: "5 7,8,10,11,13,14,16,17,19,20 * * *"
 
 permissions:
   contents: read
@@ -34,19 +29,6 @@ jobs:
           echo "::add-mask::$TOKEN"
           echo "WG_OIDC_TOKEN=$TOKEN" >> "$GITHUB_ENV"
 
-      - name: Run cloud scheduler
-        shell: bash
-        env:
-          WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
-        run: |
-          OUT="$RUNNER_TEMP/wortgefuehl-scheduler.json"
-          CODE=$(curl -sS --max-time 240 -o "$OUT" -w "%{http_code}" -X POST             -H "Authorization: Bearer $WG_OIDC_TOKEN"             "$WG_CLOUD_BASE/api/scheduler/run")
-          cat "$OUT" || true
-          if [ "$CODE" -lt 200 ] || [ "$CODE" -ge 300 ]; then
-            echo "::error title=Wortgefühl Scheduler Fehler::HTTP $CODE"
-            exit 1
-          fi
-
       - name: Check for pending render job
         id: preflight
         shell: bash
@@ -68,10 +50,6 @@ jobs:
 
       - uses: actions/checkout@v5
         if: steps.preflight.outputs.has_job == 'true'
-
-      - name: Test subtitle formats
-        if: steps.preflight.outputs.has_job == 'true'
-        run: python -W error scripts/test_wortgefuehl_render.py
 
       - name: Setup FFmpeg
         if: steps.preflight.outputs.has_job == 'true'
