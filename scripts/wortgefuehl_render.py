@@ -6,26 +6,19 @@ import re
 import shlex
 import subprocess
 import tempfile
-import urllib.error
 import urllib.parse
-import urllib.request
 
 BASE = os.environ.get("WG_CLOUD_BASE", "").rstrip("/")
 OIDC = os.environ.get("WG_OIDC_TOKEN", "")
 JOB_FILE = os.environ.get("WG_JOB_FILE", "").strip()
-AUTH_HEADER = {"Authorization": "Bearer " + OIDC}
 
-def call(path, method="GET", body=None, headers=None, timeout=180):
-    merged = dict(AUTH_HEADER)
-    merged.update(headers or {})
-    req = urllib.request.Request(BASE + path, data=body, method=method, headers=merged)
-    try:
-        return urllib.request.urlopen(req, timeout=timeout)
-    except urllib.error.HTTPError as exc:
-        if exc.code == 204:
-            return exc
-        detail = exc.read().decode("utf-8", "replace")[:1200]
-        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+def curl_base(method="GET"):
+    return [
+        "curl", "-sS", "--retry", "2", "--connect-timeout", "20",
+        "--max-time", "300", "-X", method,
+        "-H", "Authorization: Bearer " + OIDC,
+        "-H", "User-Agent: GitHubActions-Wortgefuehl/1.0",
+    ]
 
 def run(args):
     print("+", " ".join(shlex.quote(str(x)) for x in args), flush=True)
@@ -45,33 +38,39 @@ def probe_duration(path):
     return max(0.0, int(h) * 3600 + int(m) * 60 + float(s))
 
 def next_job():
-    response = call("/api/render/claim", method="POST", body=b"")
-    code = getattr(response, "status", None) or getattr(response, "code", None)
-    if code == 204:
-        return None
-    data = json.load(response)
-    return data.get("job")
+    with tempfile.NamedTemporaryFile(prefix="wg-claim-", suffix=".json", delete=False) as tmp:
+        path = pathlib.Path(tmp.name)
+    try:
+        proc = subprocess.run(
+            curl_base("POST") + ["-o", str(path), "-w", "%{http_code}", BASE + "/api/render/claim"],
+            capture_output=True, text=True, check=False
+        )
+        code = proc.stdout.strip()
+        if code == "204":
+            return None
+        if code != "200":
+            detail = path.read_text("utf-8", errors="replace")[:1200] if path.exists() else proc.stderr[:1200]
+            raise RuntimeError(f"Render claim HTTP {code}: {detail}")
+        return json.loads(path.read_text("utf-8")).get("job")
+    finally:
+        path.unlink(missing_ok=True)
 
 def cloud_asset(key, target):
     encoded = urllib.parse.quote(str(key), safe="/")
-    with call("/api/render/asset/" + encoded) as src, open(target, "wb") as dst:
-        while True:
-            block = src.read(1024 * 1024)
-            if not block:
-                break
-            dst.write(block)
+    run(curl_base("GET") + [
+        "-fL", "-o", str(target),
+        BASE + "/api/render/asset/" + encoded
+    ])
 
 def public_file(url, target):
     if not str(url).startswith("https://"):
         return False
     try:
-        req = urllib.request.Request(str(url), headers={"User-Agent": "WortgefuehlRender/1.0"})
-        with urllib.request.urlopen(req, timeout=90) as src, open(target, "wb") as dst:
-            while True:
-                block = src.read(1024 * 1024)
-                if not block:
-                    break
-                dst.write(block)
+        subprocess.run([
+            "curl", "-fsSL", "--retry", "2", "--connect-timeout", "20", "--max-time", "120",
+            "-H", "User-Agent: GitHubActions-Wortgefuehl/1.0",
+            "-o", str(target), str(url)
+        ], check=True)
         return pathlib.Path(target).stat().st_size > 1000
     except Exception as exc:
         print("Background download fallback:", exc, flush=True)
@@ -250,25 +249,35 @@ def mix_and_subtitle(payload, work, base, voice_mp3, voice_vtt):
 
 def upload_result(job_id, path):
     encoded = urllib.parse.quote(str(job_id), safe="")
-    data = pathlib.Path(path).read_bytes()
-    response = call(
-        "/api/render/complete?job_id=" + encoded,
-        method="PUT",
-        body=data,
-        headers={"Content-Type": "video/mp4"},
-        timeout=300
-    )
-    return json.load(response)
+    with tempfile.NamedTemporaryFile(prefix="wg-upload-", suffix=".json", delete=False) as tmp:
+        result_path = pathlib.Path(tmp.name)
+    try:
+        proc = subprocess.run(
+            curl_base("PUT") + [
+                "-f", "-H", "Content-Type: video/mp4",
+                "--data-binary", "@" + str(path),
+                "-o", str(result_path),
+                BASE + "/api/render/complete?job_id=" + encoded
+            ],
+            capture_output=True, text=True, check=False
+        )
+        if proc.returncode != 0:
+            detail = result_path.read_text("utf-8", errors="replace")[:1200] if result_path.exists() else proc.stderr[:1200]
+            raise RuntimeError("Video Rückgabe fehlgeschlagen: " + detail)
+        return json.loads(result_path.read_text("utf-8"))
+    finally:
+        result_path.unlink(missing_ok=True)
 
 def report_failure(job_id, error):
-    body = json.dumps({"job_id": job_id, "error": str(error)[:1000]}).encode("utf-8")
+    payload = json.dumps({"job_id": job_id, "error": str(error)[:1000]})
     try:
-        call(
-            "/api/render/fail",
-            method="POST",
-            body=body,
-            headers={"Content-Type": "application/json"},
-            timeout=60
+        subprocess.run(
+            curl_base("POST") + [
+                "-f", "-H", "Content-Type: application/json",
+                "--data-binary", payload,
+                BASE + "/api/render/fail"
+            ],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
         )
     except Exception as exc:
         print("Could not report failure:", exc, flush=True)
