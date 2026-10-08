@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+import base64
 import json
 import os
+import time
+import sys
 import pathlib
 import re
 import shlex
@@ -12,7 +15,35 @@ BASE = os.environ.get("WG_CLOUD_BASE", "").rstrip("/")
 OIDC = os.environ.get("WG_OIDC_TOKEN", "")
 JOB_FILE = os.environ.get("WG_JOB_FILE", "").strip()
 
+def refresh_oidc():
+    global OIDC
+    endpoint = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_URL", "")
+    request_token = os.environ.get("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
+    if not endpoint or not request_token:
+        return OIDC
+    try:
+        part = OIDC.split(".")[1]
+        expires = float(json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4))).get("exp", 0))
+    except (ValueError, IndexError, TypeError):
+        expires = 0
+    if expires > time.time() + 120:
+        return OIDC
+    separator = "&" if "?" in endpoint else "?"
+    response = subprocess.run([
+        "curl", "-fsS", "--retry", "2", "--connect-timeout", "20", "--max-time", "60",
+        "-H", "Authorization: bearer " + request_token,
+        endpoint + separator + "audience=wortgefuehl-autopilot"
+    ], capture_output=True, text=True, check=False)
+    if response.returncode:
+        raise RuntimeError("GitHub OIDC token refresh failed.")
+    OIDC = str(json.loads(response.stdout).get("value") or "")
+    if not OIDC:
+        raise RuntimeError("GitHub returned an empty OIDC token.")
+    print("::add-mask::" + OIDC, flush=True)
+    return OIDC
+
 def curl_base(method="GET"):
+    refresh_oidc()
     return [
         "curl", "-sS", "--retry", "2", "--connect-timeout", "20",
         "--max-time", "300", "-X", method,
@@ -21,8 +52,11 @@ def curl_base(method="GET"):
     ]
 
 def run(args):
-    print("+", " ".join(shlex.quote(str(x)) for x in args), flush=True)
-    subprocess.run([str(x) for x in args], check=True)
+    safe_args = ["Authorization: [REDACTED]" if str(x).lower().startswith("authorization:") else str(x) for x in args]
+    print("+", " ".join(shlex.quote(x) for x in safe_args), flush=True)
+    result = subprocess.run([str(x) for x in args], check=False)
+    if result.returncode:
+        raise RuntimeError(f"Command failed ({result.returncode}): " + " ".join(shlex.quote(x) for x in safe_args))
 
 def probe_duration(path):
     proc = subprocess.run(
@@ -268,8 +302,8 @@ def upload_result(job_id, path):
     finally:
         result_path.unlink(missing_ok=True)
 
-def report_failure(job_id, error):
-    payload = json.dumps({"job_id": job_id, "error": str(error)[:1000]})
+def report_failure(job_id, error, retry=False):
+    payload = json.dumps({"job_id": job_id, "error": str(error)[:1000], "retry": retry})
     try:
         subprocess.run(
             curl_base("POST") + [
@@ -332,4 +366,9 @@ def main():
     print("Rendered jobs:", rendered, flush=True)
 
 if __name__ == "__main__":
-    main()
+    if "--release-initial-job" in sys.argv:
+        job = initial_job()
+        if job:
+            report_failure(str(job["id"]), "GitHub setup or workflow stopped before completion.", retry=True)
+    else:
+        main()

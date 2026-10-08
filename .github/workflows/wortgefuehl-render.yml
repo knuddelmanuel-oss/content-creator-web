@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: wortgefuehl-cloud-render
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   render:
@@ -60,7 +60,7 @@ jobs:
         if: steps.preflight.outputs.has_job == 'true'
         uses: FedericoCarboni/setup-ffmpeg@36c6454b5a2348e7794ba2d82a21506605921e3d
         with:
-          ffmpeg-version: latest
+          ffmpeg-version: release
 
       - name: Install voice renderer
         if: steps.preflight.outputs.has_job == 'true'
@@ -82,3 +82,9 @@ jobs:
             echo "::error title=Wortgefühl Renderer Fehler::$(tail -n 12 "$RUNNER_TEMP/wortgefuehl-render.log" | tr '\n' ' ' | sed 's/%/%25/g;s/\r/%0D/g;s/\n/%0A/g')"
             exit "$CODE"
           fi
+
+      - name: Release unfinished job after workflow failure
+        if: (failure() || cancelled()) && steps.preflight.outputs.has_job == 'true'
+        env:
+          WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
+        run: python scripts/wortgefuehl_render.py --release-initial-job
