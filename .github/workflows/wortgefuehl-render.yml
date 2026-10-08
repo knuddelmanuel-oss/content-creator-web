@@ -9,10 +9,11 @@ on:
       - "scripts/wortgefuehl_render.py"
       - "scripts/test_wortgefuehl_render.py"
   schedule:
-    # Watchdog: prüft tagsüber alle 10 Minuten auf wartende Renderjobs.
-    # Ohne Job endet der Lauf bereits im Preflight, also ohne Checkout, FFmpeg oder Rendering.
-    # Dadurch bleibt der Autopilot auch bei verzögerten oder verpassten Einzelterminen selbstheilend.
-    - cron: "*/10 6-20 * * *"
+    # Feste Renderprüfung 5 Minuten nach der Content Vorbereitung.
+    # Sommerzeit: 08:45, 11:45, 14:45, 17:45, 20:45 Europe/Berlin.
+    # Winterzeit: dieselben lokalen Zeiten. GitHub Cron läuft in UTC, deshalb beide UTC Kandidaten.
+    # Ohne wartenden Job endet der Lauf sofort im Preflight.
+    - cron: "45 6,7,9,10,12,13,15,16,18,19 * * *"
 
 permissions:
   contents: read
