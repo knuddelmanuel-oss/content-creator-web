@@ -111,19 +111,21 @@ def public_file(url, target):
         return False
 
 def parse_vtt_time(value):
-    h, m, rest = value.split(":")
-    s, ms = rest.split(".")
-    return int(h) * 3600 + int(m) * 60 + int(s) + int(ms) / 1000.0
+    # edge-tts writes SRT timing even when the output filename ends in .vtt.
+    raw = str(value).strip().replace(",", ".")
+    match = re.fullmatch(r"(?:(\d+):)?(\d{2}):(\d{2}(?:\.\d{1,3})?)", raw)
+    if not match:
+        raise ValueError("Invalid subtitle timestamp: " + repr(value))
+    hours, minutes, seconds = match.groups()
+    if int(minutes) >= 60 or float(seconds) >= 60:
+        raise ValueError("Out-of-range subtitle timestamp: " + repr(value))
+    return int(hours or 0) * 3600 + int(minutes) * 60 + float(seconds)
 
 def ass_time(seconds):
-    seconds = max(0.0, float(seconds))
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-    cs = int(round((seconds - int(seconds)) * 100))
-    if cs >= 100:
-        s += 1
-        cs = 0
+    centiseconds = int(round(max(0.0, float(seconds)) * 100))
+    h, remainder = divmod(centiseconds, 360000)
+    m, remainder = divmod(remainder, 6000)
+    s, cs = divmod(remainder, 100)
     return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 def vtt_to_ass(vtt_path, ass_path, shift=1.5):
@@ -149,11 +151,14 @@ def vtt_to_ass(vtt_path, ass_path, shift=1.5):
             cues.append((start, end, caption))
         i += 1
 
+    if not cues:
+        raise ValueError("The voice renderer returned no readable subtitle cues.")
+
     header = """[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
-WrapStyle: 2
+WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
@@ -165,7 +170,7 @@ Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
 """
     events = []
     for start, end, caption in cues:
-        caption = caption.replace("\n", " ").replace(",", "\,")
+        caption = caption.replace("\n", " ")
         events.append(f"Dialogue: 0,{ass_time(start)},{ass_time(end)},Default,,0,0,0,,{caption}")
     pathlib.Path(ass_path).write_text(header + "\n".join(events) + "\n", "utf-8")
 
