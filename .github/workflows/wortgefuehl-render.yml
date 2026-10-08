@@ -52,13 +52,17 @@ jobs:
             exit 1
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.preflight.outputs.has_job == 'true'
 
       - name: Install renderer
         if: steps.preflight.outputs.has_job == 'true'
+        shell: bash
         run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
           python -m pip install --disable-pip-version-check --quiet edge-tts
+          command -v ffmpeg
           ffmpeg -version | head -n 1
 
       - name: Render pending Wortgefuehl jobs
