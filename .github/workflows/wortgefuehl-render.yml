@@ -18,7 +18,7 @@ permissions:
 
 concurrency:
   group: wortgefuehl-cloud-render
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   render:
@@ -39,6 +39,7 @@ jobs:
         env:
           WG_CLOUD_BASE: https://wortgefuehl-autopilot.knuddelmanuel.workers.dev
         run: |
+          sleep 20
           JOB_FILE="$RUNNER_TEMP/wortgefuehl-job.json"
           CODE=$(curl -sS -o "$JOB_FILE" -w "%{http_code}" -X POST             -H "Authorization: Bearer $WG_OIDC_TOKEN"             "$WG_CLOUD_BASE/api/render/claim")
           if [ "$CODE" = "204" ]; then
@@ -55,12 +56,15 @@ jobs:
       - uses: actions/checkout@v5
         if: steps.preflight.outputs.has_job == 'true'
 
-      - name: Install renderer
+      - name: Setup FFmpeg
         if: steps.preflight.outputs.has_job == 'true'
-        shell: bash
+        uses: FedericoCarboni/setup-ffmpeg@36c6454b5a2348e7794ba2d82a21506605921e3d
+        with:
+          ffmpeg-version: latest
+
+      - name: Install voice renderer
+        if: steps.preflight.outputs.has_job == 'true'
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq ffmpeg
           python -m pip install --disable-pip-version-check --quiet edge-tts
           command -v ffmpeg
           ffmpeg -version | head -n 1
