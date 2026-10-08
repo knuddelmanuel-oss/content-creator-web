@@ -9,11 +9,13 @@ on:
       - "scripts/wortgefuehl_render.py"
       - "scripts/test_wortgefuehl_render.py"
   schedule:
-    # Feste Renderprüfung 5 Minuten nach der Content Vorbereitung.
-    # Sommerzeit: 08:45, 11:45, 14:45, 17:45, 20:45 Europe/Berlin.
-    # Winterzeit: dieselben lokalen Zeiten. GitHub Cron läuft in UTC, deshalb beide UTC Kandidaten.
+    # Zwei gezielte Checks pro festem Slot. Die Zeitzone wird direkt von GitHub berücksichtigt.
+    # Der zweite Check ist nur ein schlanker Fallback, falls ein geplanter Lauf verzögert wird.
     # Ohne wartenden Job endet der Lauf sofort im Preflight.
-    - cron: "45 6,7,9,10,12,13,15,16,18,19 * * *"
+    - cron: "45 8,11,14,17,20 * * *"
+      timezone: "Europe/Berlin"
+    - cron: "52 8,11,14,17,20 * * *"
+      timezone: "Europe/Berlin"
 
 permissions:
   contents: read
