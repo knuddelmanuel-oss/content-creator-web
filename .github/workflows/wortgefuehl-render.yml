@@ -11,7 +11,7 @@ on:
   schedule:
     # Europe/Berlin hat Sommer und Winterzeit. Beide UTC Kandidaten werden geprüft.
     # Der Preflight beendet die fünf falschen Kandidaten nach wenigen Sekunden.
-    - cron: "*/10 6-21 * * *"
+    - cron: "*/10 6-20 * * *"
 
 permissions:
   contents: read
