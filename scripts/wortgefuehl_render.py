@@ -286,6 +286,47 @@ def mix_and_subtitle(payload, work, base, voice_mp3, voice_vtt):
     ])
     return output
 
+def ensure_upload_size(path, work, max_bytes=80 * 1024 * 1024):
+    path = pathlib.Path(path)
+    size = path.stat().st_size
+    print(f"Rendered file size: {size / 1024 / 1024:.1f} MB", flush=True)
+    if size <= max_bytes:
+        return path
+
+    compressed = pathlib.Path(work) / "final-upload.mp4"
+    print("Video is too large for reliable Worker upload. Compressing automatically.", flush=True)
+    run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", path,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "25",
+        "-maxrate", "4500k", "-bufsize", "9000k",
+        "-c:a", "aac", "-b:a", "128k",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        compressed
+    ])
+    size = compressed.stat().st_size
+    print(f"Compressed file size: {size / 1024 / 1024:.1f} MB", flush=True)
+    if size <= max_bytes:
+        return compressed
+
+    smaller = pathlib.Path(work) / "final-upload-small.mp4"
+    print("First compression is still too large. Applying safe upload bitrate.", flush=True)
+    run([
+        "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+        "-i", compressed,
+        "-c:v", "libx264", "-preset", "fast", "-crf", "27",
+        "-maxrate", "3200k", "-bufsize", "6400k",
+        "-c:a", "aac", "-b:a", "112k",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        smaller
+    ])
+    size = smaller.stat().st_size
+    print(f"Safe upload file size: {size / 1024 / 1024:.1f} MB", flush=True)
+    if size > max_bytes:
+        raise RuntimeError(f"Video bleibt mit {size / 1024 / 1024:.1f} MB über dem sicheren Upload Limit.")
+    return smaller
+
+
 def upload_result(job_id, path):
     encoded = urllib.parse.quote(str(job_id), safe="")
     with tempfile.NamedTemporaryFile(prefix="wg-upload-", suffix=".json", delete=False) as tmp:
@@ -293,16 +334,20 @@ def upload_result(job_id, path):
     try:
         proc = subprocess.run(
             curl_base("PUT") + [
-                "-f", "-H", "Content-Type: video/mp4",
+                "--fail-with-body", "-H", "Content-Type: video/mp4",
                 "--data-binary", "@" + str(path),
-                "-o", str(result_path),
+                "-o", str(result_path), "-w", "%{http_code}",
                 BASE + "/api/render/complete?job_id=" + encoded
             ],
             capture_output=True, text=True, check=False
         )
+        http_code = proc.stdout.strip()
         if proc.returncode != 0:
-            detail = result_path.read_text("utf-8", errors="replace")[:1200] if result_path.exists() else proc.stderr[:1200]
-            raise RuntimeError("Video Rückgabe fehlgeschlagen: " + detail)
+            detail = result_path.read_text("utf-8", errors="replace")[:1200] if result_path.exists() else ""
+            if not detail:
+                detail = (proc.stderr or "").strip()[:1200]
+            size_mb = pathlib.Path(path).stat().st_size / 1024 / 1024
+            raise RuntimeError(f"Video Rückgabe fehlgeschlagen (HTTP {http_code or 'unknown'}, {size_mb:.1f} MB): {detail}")
         return json.loads(result_path.read_text("utf-8"))
     finally:
         result_path.unlink(missing_ok=True)
@@ -336,7 +381,8 @@ def render_job(job):
         final_dur = probe_duration(output)
         if final_dur < 61.0:
             raise RuntimeError(f"Gerendertes Video ist mit {final_dur:.1f}s zu kurz.")
-        result = upload_result(job_id, output)
+        upload_path = ensure_upload_size(output, work)
+        result = upload_result(job_id, upload_path)
         print("Uploaded", job_id, f"{final_dur:.1f}s", result.get("key"), flush=True)
 
 def initial_job():
